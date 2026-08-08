@@ -127,6 +127,13 @@ input {
   -webkit-app-region: drag;
 }
 
+.brand-logo {
+  width: 18px;
+  height: 18px;
+  margin-right: 6px;
+  object-fit: contain;
+}
+
 .nav-tabs {
   display: flex;
   align-items: stretch;
@@ -944,10 +951,9 @@ input {
 
 .about-logo {
   margin-top: 14px;
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--blue);
-  letter-spacing: 1px;
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
 }
 
 .about-name {
