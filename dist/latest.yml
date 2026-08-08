@@ -1,8 +1,8 @@
-version: 0.2.0
+version: 0.1.0
 files:
-  - url: RYZE-Game-Launcher-Setup-0.2.0.exe
-    sha512: DJYWnfr7YvT8eGcYm3l+UCJYmAkOZ2+iHfytp1pJBynkmuWyDdlhB8QKk8nuv8DXou6PkbnpxrhuGmjgjioSmA==
-    size: 118707103
-path: RYZE-Game-Launcher-Setup-0.2.0.exe
-sha512: DJYWnfr7YvT8eGcYm3l+UCJYmAkOZ2+iHfytp1pJBynkmuWyDdlhB8QKk8nuv8DXou6PkbnpxrhuGmjgjioSmA==
-releaseDate: '2026-08-08T16:04:29.631Z'
+  - url: RYZE-Game-Launcher-Setup-0.1.0.exe
+    sha512: Gndp4MCLcLtQqx+iyzbFq4A2Ya0GWC8ZVD/V0j4yEtIzNguSKZ86MErU8eUjgY6SyhZhWT6RlstNIaN5qJDayA==
+    size: 118707179
+path: RYZE-Game-Launcher-Setup-0.1.0.exe
+sha512: Gndp4MCLcLtQqx+iyzbFq4A2Ya0GWC8ZVD/V0j4yEtIzNguSKZ86MErU8eUjgY6SyhZhWT6RlstNIaN5qJDayA==
+releaseDate: '2026-08-08T16:19:36.514Z'
