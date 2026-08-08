@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "build:dummy": "dotnet build src/DummyGame -c Release",
-    "dist": "electron-builder --win nsis portable"
+    "dist": "electron-builder --win nsis"
   },
   "build": {
     "appId": "com.ryze.gamelauncher",
@@ -28,8 +28,7 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
-        "nsis",
-        "portable"
+        "nsis"
       ],
       "artifactName": "RYZE-Game-Launcher.exe"
     },
