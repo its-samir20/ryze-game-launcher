@@ -763,7 +763,24 @@ async function openUpdateModal() {
     $('updateStatus').textContent = `New version ${res.latest} is available!`;
     $('updateStatus').className = 'update-status ok';
     $('updateDownload').style.display = 'inline-block';
-    $('updateDownload').onclick = () => launcherApi.openExternal(res.url);
+    $('updateDownload').disabled = false;
+    $('updateDownload').textContent = 'Download Update';
+    $('updateProgress').style.display = 'none';
+    $('updateDownload').onclick = async () => {
+      $('updateDownload').disabled = true;
+      $('updateDownload').textContent = 'Downloading...';
+      $('updateProgress').style.display = 'block';
+      $('updateProgressFill').style.width = '0%';
+      $('updateProgressText').textContent = 'Downloading update...';
+      const r = await launcherApi.installUpdate();
+      if (!r.ok) {
+        $('updateStatus').textContent = 'Download failed: ' + (r.error || 'unknown error');
+        $('updateStatus').className = 'update-status err';
+        $('updateDownload').disabled = false;
+        $('updateDownload').textContent = 'Try Again';
+        return;
+      }
+    };
   } else if (!res.reachable) {
     $('updateStatus').textContent = 'Could not reach the update server.';
     $('updateStatus').className = 'update-status err';
@@ -782,6 +799,30 @@ $('modalClose').addEventListener('click', () => {
 
 $('updateModal').addEventListener('click', (e) => {
   if (e.target === $('updateModal')) $('updateModal').style.display = 'none';
+});
+
+launcherApi.onUpdateProgress((p) => {
+  const pct = Math.round(p.percent || 0);
+  $('updateProgressFill').style.width = pct + '%';
+  $('updateProgressText').textContent = `Downloading update... ${pct}%`;
+  $('updateDownload').textContent = `Downloading ${pct}%`;
+});
+
+launcherApi.onUpdateDownloaded(() => {
+  $('updateProgressFill').style.width = '100%';
+  $('updateProgressText').textContent = 'Download complete.';
+  $('updateStatus').textContent = 'Ready to install. The app will close and restart automatically.';
+  $('updateStatus').className = 'update-status ok';
+  $('updateDownload').disabled = false;
+  $('updateDownload').textContent = 'Install & Restart';
+  $('updateDownload').onclick = () => launcherApi.quitAndInstallUpdate();
+});
+
+launcherApi.onUpdateError((err) => {
+  $('updateStatus').textContent = 'Update failed: ' + (err.message || String(err));
+  $('updateStatus').className = 'update-status err';
+  $('updateDownload').disabled = false;
+  $('updateDownload').textContent = 'Try Again';
 });
 
 async function openAboutModal() {

@@ -51,11 +51,19 @@
         "from": "build/vc_redist.x64.exe",
         "to": "vc_redist.x64.exe"
       }
-    ]
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "samircloudnxt",
+      "repo": "ryze-game-launcher"
+    }
   },
   "devDependencies": {
     "electron": "^37.0.0",
     "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

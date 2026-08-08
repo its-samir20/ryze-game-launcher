@@ -4,9 +4,35 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const { spawn } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 
 const DISCORD_DETECTABLE_URL = 'https://discord.com/api/applications/detectable';
 const UPDATE_REPO = 'samircloudnxt/ryze-game-launcher';
+
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
+function sendUpdateStatus(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update/status', payload);
+  }
+}
+
+autoUpdater.on('update-available', (info) => {
+  sendUpdateStatus({ state: 'available', version: String(info.version || '') });
+});
+autoUpdater.on('update-not-available', () => {
+  sendUpdateStatus({ state: 'not-available' });
+});
+autoUpdater.on('download-progress', (p) => {
+  sendUpdateStatus({ state: 'downloading', percent: Math.round(p.percent || 0) });
+});
+autoUpdater.on('update-downloaded', (info) => {
+  sendUpdateStatus({ state: 'downloaded', version: String(info.version || '') });
+});
+autoUpdater.on('error', (err) => {
+  sendUpdateStatus({ state: 'error', message: String(err && err.message ? err.message : err) });
+});
 
 function compareVersions(a, b) {
   const pa = String(a).replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
@@ -577,6 +603,24 @@ ipcMain.handle('app/update/check', async () => {
     notes,
     published
   };
+});
+
+ipcMain.handle('app/update/startDownload', async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
+});
+
+ipcMain.handle('app/update/install', async () => {
+  try {
+    setImmediate(() => autoUpdater.quitAndInstall(false, true));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
 });
 
 ipcMain.handle('launcher/syncGameList', async () => {

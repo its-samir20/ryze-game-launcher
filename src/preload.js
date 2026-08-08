@@ -30,11 +30,31 @@ contextBridge.exposeInMainWorld('launcherApi', {
     ipcRenderer.on('launcher/gameExited', handler);
   },
 
-  installUpdate: () => Promise.resolve({ ok: false, error: 'Updates disabled' }),
+  installUpdate: () => ipcRenderer.invoke('app/update/startDownload'),
   remindUpdateLater: () => Promise.resolve({}),
-  quitAndInstallUpdate: () => Promise.resolve({}),
-  onUpdateAvailable: () => {},
-  onUpdateProgress: () => {},
-  onUpdateDownloaded: () => {},
-  onUpdateError: () => {}
+  quitAndInstallUpdate: () => ipcRenderer.invoke('app/update/install'),
+  onUpdateAvailable: (handler) => {
+    ipcRenderer.removeAllListeners('update/status');
+    ipcRenderer.on('update/status', (e, payload) => {
+      if (payload.state === 'available' || payload.state === 'not-available') handler(payload);
+    });
+  },
+  onUpdateProgress: (handler) => {
+    ipcRenderer.removeAllListeners('update/progress');
+    ipcRenderer.on('update/status', (e, payload) => {
+      if (payload.state === 'downloading') handler(payload);
+    });
+  },
+  onUpdateDownloaded: (handler) => {
+    ipcRenderer.removeAllListeners('update/downloaded');
+    ipcRenderer.on('update/status', (e, payload) => {
+      if (payload.state === 'downloaded') handler(payload);
+    });
+  },
+  onUpdateError: (handler) => {
+    ipcRenderer.removeAllListeners('update/error');
+    ipcRenderer.on('update/status', (e, payload) => {
+      if (payload.state === 'error') handler(payload);
+    });
+  }
 });
