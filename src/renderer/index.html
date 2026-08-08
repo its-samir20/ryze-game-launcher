@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RYZE Game Launcher</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-tabs">
+      <div class="nav-ham" id="settingsBtn" aria-label="Settings">
+        <span class="ham"><i></i><i></i><i></i></span>
+      </div>
+      <div class="nav-tab active" id="tabStore">STORE</div>
+      <div class="nav-tab" id="tabLibrary">LIBRARY</div>
+    </div>
+    <div class="brand">RYZE Game Launcher</div>
+    <div class="nav-right">
+      <div class="win-controls">
+        <button class="win-btn minimize" id="minBtn" aria-label="Minimize"></button>
+        <button class="win-btn maximize" id="maxBtn" aria-label="Maximize"></button>
+        <button class="win-btn close" id="closeBtn" aria-label="Close"></button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="content">
+    <section class="page store-page" id="storePage">
+      <div class="hero">
+        <div class="hero-info">
+          <div class="hero-tag">FEATURED</div>
+          <div class="hero-title" id="featuredTitle">Loading game database&hellip;</div>
+          <div class="hero-sub" id="featuredSub">Fetching Discord's game list. This can take a moment on first run.</div>
+        </div>
+        <div class="hero-side">
+          <button class="btn hero-btn" id="featuredBtn" disabled>&hellip;</button>
+        </div>
+      </div>
+
+      <div class="store-search-row">
+        <input type="text" class="store-search" id="storeSearch" placeholder="Search the game database&hellip;" />
+      </div>
+
+      <div class="chips">
+        <div class="chip" data-filter="recent">Recently Played</div>
+        <div class="chip" data-filter="new">Newly Launched</div>
+        <div class="chip" data-filter="recommended">Recommended</div>
+      </div>
+
+      <div class="store-status" id="storeStatus"></div>
+
+      <div class="cards" id="storeCards"></div>
+    </section>
+
+    <section class="page library-page" id="libraryPage" style="display:none;">
+      <div class="library-body">
+        <div class="rail">
+          <div class="rail-head">
+            <div class="rail-title">GAMES</div>
+            <div class="rail-count" id="libraryCount">0</div>
+          </div>
+          <input type="text" class="rail-search" id="librarySearch" placeholder="Search your library&hellip;" />
+          <div class="rail-list" id="libraryList"></div>
+        </div>
+
+        <div class="detail-wrap">
+          <div class="empty-state" id="emptyState">
+            <div class="empty-icon">&#9688;</div>
+            <div class="empty-title">No game selected</div>
+            <div class="empty-sub">Pick a game from your library to see details.</div>
+          </div>
+
+          <div class="detail" id="detail" style="display:none;">
+            <div class="detail-banner">
+              <div class="banner-left">
+                <div class="banner-title" id="detailBannerTitle"></div>
+                <div class="banner-sub" id="detailBannerSub"></div>
+                <div class="banner-note" id="detailBannerNote"></div>
+              </div>
+              <div class="banner-right">
+                <div class="art-box" id="artBox">Game Art</div>
+                <button class="btn fav-btn" id="favBtn">&#9825;  Favorite</button>
+              </div>
+            </div>
+
+            <div class="detail-head">
+              <div class="detail-title" id="detailTitle"></div>
+              <div class="status-pill" id="detailStatus">&#9679;  Ready</div>
+            </div>
+            <div class="detail-sub" id="detailSub"></div>
+            <div class="detail-note" id="detailNote" style="display:none;"></div>
+
+            <button class="btn launch-btn" id="launchBtn">&#9656;  Launch Game</button>
+
+            <div class="actions">
+              <button class="btn small" id="shortcutBtn">Desktop Shortcut</button>
+              <button class="btn small danger" id="deleteBtn">Delete</button>
+            </div>
+
+            <div class="links">
+              <button class="btn small link" data-link="Steam">Steam</button>
+              <button class="btn small link" data-link="Official">Official</button>
+              <button class="btn small link" data-link="Trailer">Trailer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="updateModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-title">Check for Updates</div>
+      <div class="modal-status" id="updateStatus"></div>
+      <div class="modal-version">Version <span id="verVal">&hellip;</span></div>
+      <div class="modal-date">Last update: <span id="updateDate">&hellip;</span></div>
+      <div class="modal-sub">What's fixed</div>
+      <ul class="modal-fixes" id="fixList"></ul>
+      <div class="modal-actions">
+        <button class="modal-btn" id="updateDownload" style="display:none;">Download Update</button>
+        <button class="modal-btn" id="modalClose">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="aboutModal" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-title">About App</div>
+      <div class="about-logo">RYZE</div>
+      <div class="about-name">RYZE Game Launcher</div>
+      <div class="about-desc">RYZE Game Launcher is a Windows desktop app for Discord quest enthusiasts. It browses Discord's public game database, builds your personal game library, and launches games so Discord shows you as playing.</div>
+      <div class="about-meta">Version <span id="aboutVersion">&hellip;</span></div>
+      <div class="about-meta">Last update: <span id="aboutUpdateDate">&hellip;</span></div>
+      <div class="modal-sub">How it works</div>
+      <ul class="about-facts">
+        <li>Browse &amp; search games from Discord's game database</li>
+        <li>Add games to your library and mark favorites</li>
+        <li>Launch a game with one click &mdash; Discord shows "Playing" status</li>
+        <li>Recently played games are tracked automatically</li>
+        <li>Create desktop shortcuts for any game</li>
+        <li>Customize themes, startup options and system tray behavior</li>
+      </ul>
+      <button class="modal-btn" id="aboutClose">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="aboutDevModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-title">About Dev</div>
+      <div class="dev-avatar"><span id="devAvatarFallback">S</span><img id="devAvatarImg" alt=""></div>
+      <div class="dev-name">AL Jame Samir</div>
+      <div class="dev-role">Developer</div>
+      <div class="dev-social">
+        <div class="dev-link" id="devGithub">
+          <svg viewBox="0 0 16 16" width="22" height="22" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        </div>
+        <div class="dev-link" id="devFacebook">
+          <svg viewBox="0 0 320 512" width="22" height="22" fill="currentColor"><path d="M279.14 288l14.22-92.66h-88.91v-60.13c0-25.35 12.42-50.06 52.24-50.06h40.42V6.26S260.43 0 225.36 0c-73.22 0-121.08 44.38-121.08 124.72v70.62H22.89V288h81.39v224h100.17V288z"/></svg>
+        </div>
+        <div class="dev-link" id="devInstagram">
+          <svg viewBox="0 0 448 512" width="22" height="22" fill="currentColor"><path d="M224.1 141c-63.6 0-114.9 51.3-114.9 114.9s51.3 114.9 114.9 114.9S339 319.5 339 255.9 287.7 141 224.1 141zm0 189.6c-41.1 0-74.7-33.5-74.7-74.7s33.5-74.7 74.7-74.7 74.7 33.5 74.7 74.7-33.6 74.7-74.7 74.7zm146.4-194.3c0 14.9-12 26.8-26.8 26.8-14.9 0-26.8-12-26.8-26.8s12-26.8 26.8-26.8 26.8 12 26.8 26.8zm76.1 27.2c-1.7-35.9-9.9-67.7-36.2-93.9-26.2-26.2-58-34.4-93.9-36.2-37-2.1-147.9-2.1-184.9 0-35.8 1.7-67.6 9.9-93.9 36.1s-34.4 58-36.2 93.9c-2.1 37-2.1 147.9 0 184.9 1.7 35.9 9.9 67.7 36.2 93.9s58 34.4 93.9 36.2c37 2.1 147.9 2.1 184.9 0 35.9-1.7 67.7-9.9 93.9-36.2 26.2-26.2 34.4-58 36.2-93.9 2.1-37 2.1-147.8 0-184.8zM398.8 388c-7.8 19.6-22.9 34.7-42.6 42.6-29.5 11.7-99.5 9-132.1 9s-102.7 2.6-132.1-9c-19.6-7.8-34.7-22.9-42.6-42.6-11.7-29.5-9-99.5-9-132.1s-2.6-102.7 9-132.1c7.8-19.6 22.9-34.7 42.6-42.6 29.5-11.7 99.5-9 132.1-9s102.7-2.6 132.1 9c19.6 7.8 34.7 22.9 42.6 42.6 11.7 29.5 9 99.5 9 132.1s2.7 102.7-9 132.1z"/></svg>
+        </div>
+      </div>
+      <div class="about-meta">Experimental Project | Non-profitable Software</div>
+      <button class="modal-btn" id="aboutDevClose">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="termsModal" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-title">Terms &amp; Conditions</div>
+      <div class="terms-scroll">
+        <p class="terms-p">Last updated: August 8, 2026</p>
+        <p class="terms-p">By installing or using RYZE Game Launcher ("the App"), you agree to these Terms &amp; Conditions.</p>
+        <h4 class="terms-h">1. Use of the App</h4>
+        <p class="terms-p">The App is provided for personal, non-commercial use. You may not modify, distribute, or resell the App without written permission from the developer.</p>
+        <h4 class="terms-h">2. Discord Integration</h4>
+        <p class="terms-p">The App uses Discord's public game database and may show your active game as your Discord status. RYZE is an independent project and is not affiliated with, endorsed by, or sponsored by Discord Inc.</p>
+        <h4 class="terms-h">3. Third-Party Services</h4>
+        <p class="terms-p">Game data comes from Discord's detectability API. Availability and accuracy depend on that service and may change without notice.</p>
+        <h4 class="terms-h">4. No Warranty</h4>
+        <p class="terms-p">The App is provided "as is" without warranties of any kind, express or implied. You use the App at your own risk.</p>
+        <h4 class="terms-h">5. Limitation of Liability</h4>
+        <p class="terms-p">In no event shall the developer be liable for any damages arising from the use or inability to use the App, including loss of game files, accounts, or data.</p>
+        <h4 class="terms-h">6. Privacy</h4>
+        <p class="terms-p">Your library and settings are stored locally on your device. The App does not collect or transmit personal data.</p>
+        <h4 class="terms-h">7. Changes to These Terms</h4>
+        <p class="terms-p">We may update these Terms from time to time. Continued use of the App after changes means you accept the updated Terms.</p>
+        <h4 class="terms-h">8. Contact</h4>
+        <p class="terms-p">Questions or feedback? Contact the developer through GitHub.</p>
+      </div>
+      <button class="modal-btn" id="termsClose">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="settingsModal" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-title">Settings</div>
+      <div class="settings-scroll">
+
+        <div class="set-group">
+          <div class="set-head">Theme</div>
+          <div class="set-row">
+            <div class="theme-cards">
+              <label class="theme-card" data-theme-opt="black">
+                <span class="theme-swatch sw-black"></span>
+                <span>Black</span>
+              </label>
+              <label class="theme-card" data-theme-opt="blue">
+                <span class="theme-swatch sw-blue"></span>
+                <span>Dark Blue</span>
+              </label>
+              <label class="theme-card" data-theme-opt="light">
+                <span class="theme-swatch sw-light"></span>
+                <span>Light</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-head">Startup</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Start with Windows</div>
+              <div class="set-desc">Launcher starts automatically when you sign in to Windows</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setStartup">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-head">System</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Minimize to system tray on close</div>
+              <div class="set-desc">Closing the window hides it to the system tray instead of quitting</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setTrayOnClose">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-head">Game Detection</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Auto-detect running games</div>
+              <div class="set-desc">Detects games automatically while you play</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setAutoScan">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Scan interval</div>
+              <div class="set-desc">How often the launcher scans</div>
+            </div>
+            <select class="set-select" id="setScanInterval">
+              <option value="30">30 seconds</option>
+              <option value="60">1 minute</option>
+              <option value="300">5 minutes</option>
+            </select>
+          </div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Games folder</div>
+              <div class="set-desc">Folder where the launcher looks for games</div>
+            </div>
+            <div class="set-path">
+              <input type="text" id="setGamePath" placeholder="No folder selected" readonly>
+              <button class="set-browse" id="setBrowse">Browse</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-head">Launch Behavior</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Hide launcher when a game launches</div>
+              <div class="set-desc">Hides the launcher when a game starts</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setCloseOnLaunch">
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Reopen launcher after game exits</div>
+              <div class="set-desc">Shows the launcher again when the game closes</div>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="setReopenOnExit">
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <div class="set-head">About Us</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">RYZE Game Launcher</div>
+              <div class="set-desc">Version <span id="setVersion">&hellip;</span> &bull; Last update <span id="setUpdateDate">&hellip;</span></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <button class="modal-btn" id="settingsClose">Done</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="launchModal" style="display:none;">
+    <div class="modal modal-launch">
+      <div class="launch-state" id="launchState">
+        <div class="launch-spinner" id="launchSpinner"></div>
+        <div class="launch-ok" id="launchOk">&#10003;</div>
+        <div class="launch-err" id="launchErr">!</div>
+      </div>
+      <div class="launch-title" id="launchTitle">Launching...</div>
+      <div class="launch-sub" id="launchSub">Preparing game and starting Discord detection</div>
+      <div class="launch-hint" id="launchHint"></div>
+      <button class="modal-btn" id="launchOkBtn" style="display:none;">OK</button>
+    </div>
+  </div>
+
+  <div class="context-menu" id="contextMenu" style="display:none;"></div>
+
+  <div class="hamburger-menu" id="hamburgerMenu" style="display:none;">
+    <div class="ham-item has-sub" data-action="view">View <span class="ham-chev">&#8250;</span>
+      <div class="ham-submenu">
+        <div class="ham-item" data-action="zoom-ctrl">
+          <span class="zoom-label">Zoom</span>
+          <span class="zoom-controls">
+            <span class="zoom-btn" data-action="zoom-out">&minus;</span>
+            <span class="zoom-pct-wrap">
+              <span class="zoom-pct" id="zoomPct">100%</span>
+              <div class="zoom-picker" id="zoomPicker" style="display:none;"></div>
+            </span>
+            <span class="zoom-btn" data-action="zoom-in">+</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="ham-item" data-action="settings">Settings</div>
+    <div class="ham-item" data-action="update">Check for Updates</div>
+    <div class="ham-item has-sub" data-action="help">Help <span class="ham-chev">&#8250;</span>
+      <div class="ham-submenu">
+        <div class="ham-item" data-action="support">Support</div>
+        <div class="ham-item" data-action="feedback">Share Feedback</div>
+        <div class="ham-item has-sub" data-action="bug">Report a Bug <span class="ham-chev">&#8250;</span>
+          <div class="ham-submenu">
+            <div class="ham-item" data-action="bug-report">Report a Bug</div>
+            <div class="ham-item" data-action="bug-related">Something Related</div>
+          </div>
+        </div>
+        <div class="ham-item" data-action="terms">Terms &amp; Conditions</div>
+        <div class="ham-item" data-action="touch">Get in Touch</div>
+      </div>
+    </div>
+    <div class="ham-item has-sub" data-action="about">About <span class="ham-chev">&#8250;</span>
+      <div class="ham-submenu">
+        <div class="ham-item" data-action="about-app">About App</div>
+        <div class="ham-item" data-action="about-dev">About Dev</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

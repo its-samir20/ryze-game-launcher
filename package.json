@@ -1,0 +1,41 @@
+{
+  "name": "ryze-game-launcher",
+  "productName": "RYZE Game Launcher",
+  "version": "0.1.0",
+  "description": "RYZE Game Launcher - fake game launcher for Discord quest tracking.",
+  "main": "src/main.js",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "build:dummy": "dotnet build src/DummyGame -c Release",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.ryze.gamelauncher",
+    "productName": "RYZE Game Launcher",
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/dummygame",
+        "to": "dummygame"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "portable"
+      ],
+      "artifactName": "RYZE-Game-Launcher.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2"
+  }
+}

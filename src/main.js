@@ -1,0 +1,753 @@
+const { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const os = require('os');
+const { spawn } = require('child_process');
+
+const DISCORD_DETECTABLE_URL = 'https://discord.com/api/applications/detectable';
+const UPDATE_REPO = 'samircloudnxt/ryze-game-launcher';
+
+function compareVersions(a, b) {
+  const pa = String(a).replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+}
+
+app.setPath('userData', path.join(app.getPath('appData'), 'ryze-game-launcher'));
+
+let databaseCache = { loaded: false, gameListPath: null, games: [] };
+let mainWindow = null;
+let runningProc = null;
+let tray = null;
+let isQuitting = false;
+
+const DEFAULT_SETTINGS = {
+  theme: 'black',
+  startup: false,
+  autoScan: true,
+  scanInterval: 60,
+  gamePath: '',
+  closeOnLaunch: false,
+  reopenOnExit: true,
+  trayOnClose: false
+};
+
+let settings = { ...DEFAULT_SETTINGS };
+
+function settingsFilePath() {
+  return path.join(app.getPath('userData'), 'settings.json');
+}
+
+function loadSettings() {
+  try {
+    if (fs.existsSync(settingsFilePath())) {
+      const parsed = JSON.parse(fs.readFileSync(settingsFilePath(), 'utf8'));
+      settings = { ...DEFAULT_SETTINGS, ...(parsed || {}) };
+    }
+  } catch {
+    // ignore corrupt settings
+  }
+}
+
+function saveSettings() {
+  try {
+    ensureDirSync(app.getPath('userData'));
+    fs.writeFileSync(settingsFilePath(), JSON.stringify(settings, null, 2));
+  } catch {
+    // ignore
+  }
+}
+
+function ensureDirSync(dirPath) {
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function getUserDataPaths() {
+  const userData = app.getPath('userData');
+  return {
+    userData,
+    myGamesPath: path.join(userData, 'myGames.json'),
+    gameListPath: path.join(userData, 'gamelist.json'),
+    gamesRoot: path.join(userData, 'games')
+  };
+}
+
+function sanitizeFolderName(name) {
+  return (name || 'UnknownApp')
+    .replace(/[<>:"/\\|?*]/g, '_')
+    .replace(/[\u0000-\u001F]/g, '_')
+    .trim()
+    .slice(0, 128);
+}
+
+function fallbackExeNameFromTitle(name) {
+  const base = sanitizeFolderName(String(name || 'Game'))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  const safeBase = base || 'Game';
+  return safeBase.toLowerCase().endsWith('.exe') ? safeBase : `${safeBase}.exe`;
+}
+
+function normalizeExeRelPath(exeName) {
+  return (exeName || '')
+    .replace(/^>+/, '')
+    .replace(/\\/g, path.sep)
+    .replace(/\//g, path.sep);
+}
+
+function pickBestExecutable(appEntry) {
+  const exes = Array.isArray(appEntry.executables) ? appEntry.executables : [];
+  const nonLauncherWin32 = exes.find(e =>
+    String(e?.os || '').toLowerCase() === 'win32' && !e?.is_launcher && e?.name);
+  if (nonLauncherWin32) return nonLauncherWin32;
+  const anyWin32 = exes.find(e =>
+    String(e?.os || '').toLowerCase() === 'win32' && e?.name);
+  return anyWin32 || null;
+}
+
+function cleanGameName(name) {
+  const cleaned = String(name || '').replace(/^[_\-\s]+/, '').trim();
+  return cleaned || String(name || '');
+}
+
+function toDatabaseGames(detectableApps) {
+  const result = [];
+  for (const appEntry of detectableApps || []) {
+    if (!appEntry?.name) continue;
+    const rawName = String(appEntry.name);
+    if (!/[A-Za-z]/.test(rawName)) continue;
+    if (/^[_\-\s]/.test(rawName)) continue;
+    const bestExe = pickBestExecutable(appEntry);
+    const appId = String(appEntry.id || '');
+    const exeName = bestExe?.name ? String(bestExe.name) : fallbackExeNameFromTitle(appEntry.name);
+    const iconHash = String(appEntry.icon_hash || '');
+    result.push({
+      id: appId,
+      name: cleanGameName(rawName),
+      exe: exeName,
+      isLauncher: Boolean(bestExe?.is_launcher),
+      usesNewDetection: !bestExe || !bestExe.name,
+      icon: iconHash ? `https://cdn.discordapp.com/app-icons/${appId}/${iconHash}.png?size=128` : '',
+      _nameLower: cleanGameName(rawName).toLowerCase()
+    });
+  }
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return result;
+}
+
+async function loadDatabaseCache(gameListPath) {
+  if (!gameListPath) return;
+  try {
+    const detectableApps = await readJsonIfExists(gameListPath, []);
+    databaseCache = { loaded: true, gameListPath, games: toDatabaseGames(detectableApps) };
+  } catch {
+    // keep old cache
+  }
+}
+
+const GAME_ALIASES = {
+  'gta': ['grand theft auto'],
+  'gta v': ['grand theft auto v'],
+  'gta v enhanced': ['grand theft auto v'],
+  'gta5 enhanced': ['grand theft auto v'],
+  'gta 5 enhanced': ['grand theft auto v'],
+  'gta5': ['grand theft auto v'],
+  'gta 5': ['grand theft auto v'],
+  'gtav': ['grand theft auto v'],
+  'gta iv': ['grand theft auto iv'],
+  'gta 4': ['grand theft auto iv'],
+  'gta san andreas': ['grand theft auto san andreas'],
+  'gta sa': ['grand theft auto san andreas'],
+  'gta vice city': ['grand theft auto vice city'],
+  'gta 3': ['grand theft auto iii'],
+  'gta 6': ['grand theft auto vi'],
+  'gtavice': ['grand theft auto vice city'],
+  'rdr': ['red dead redemption'],
+  'rdr2': ['red dead redemption 2'],
+  'rdr 2': ['red dead redemption 2'],
+  'red dead': ['red dead redemption'],
+  'csgo': ['counter-strike global offensive'],
+  'cs': ['counter-strike', 'counter strike'],
+  'cs2': ['counter-strike 2'],
+  'cod': ['call of duty'],
+  'warzone': ['call of duty'],
+  'pubg': ['playerunknown'],
+  'playerunknown': ['playerunknown'],
+  'lol': ['league of legends'],
+  'league': ['league of legends'],
+  'apex': ['apex legends'],
+  'valorant': ['valorant'],
+  'fortnite': ['fortnite'],
+  'minecraft': ['minecraft'],
+  'mc': ['minecraft'],
+  'terraria': ['terraria'],
+  'among us': ['among us'],
+  'fall guys': ['fall guys'],
+  'skyrim': ['skyrim'],
+  'witcher': ['the witcher'],
+  'witcher 3': ['the witcher 3'],
+  'gmod': ['garry'],
+  'garrys mod': ['garry'],
+  'rust': ['rust'],
+  'dbd': ['dead by daylight'],
+  'overwatch': ['overwatch'],
+  'ow2': ['overwatch 2'],
+  'stardew': ['stardew valley'],
+  'hollow knight': ['hollow knight'],
+  'cyberpunk': ['cyberpunk 2077'],
+  'elden ring': ['elden ring'],
+  'elden': ['elden ring'],
+  'hogwarts': ['hogwarts legacy'],
+  'destiny': ['destiny'],
+  'dota': ['dota 2'],
+  'dota2': ['dota 2'],
+  'fifa': ['fifa'],
+  'rocket league': ['rocket league'],
+  'rl': ['rocket league'],
+  'ark': ['ark'],
+  'roblox': ['roblox'],
+  'subnautica': ['subnautica'],
+  'valheim': ['valheim'],
+  'phasmophobia': ['phasmophobia'],
+  'sea of thieves': ['sea of thieves'],
+  'genshin': ['genshin impact'],
+  'honkai': ['honkai'],
+  'assassins creed': ['assassin'],
+  'assassins': ['assassin'],
+  'forza': ['forza'],
+  'halo': ['halo'],
+  'god of war': ['god of war'],
+  'gow': ['god of war'],
+  'the last of us': ['the last of us'],
+  'spiderman': ['spider-man'],
+  'spider man': ['spider-man'],
+  'far cry': ['far cry'],
+  'watch dogs': ['watch dogs'],
+  'watchdogs': ['watch dogs'],
+  'doom': ['doom'],
+  'resident evil': ['resident evil'],
+  'left 4 dead': ['left 4 dead'],
+  'l4d': ['left 4 dead'],
+  'borderlands': ['borderlands'],
+  'diablo': ['diablo'],
+  'wow': ['world of warcraft'],
+  'hearthstone': ['hearthstone'],
+  'starcraft': ['starcraft'],
+  'geometry dash': ['geometry dash'],
+  'brawlhalla': ['brawlhalla'],
+  'osu': ['osu'],
+  'dying light': ['dying light'],
+  'far cry 5': ['far cry 5']
+};
+
+function gameNameMatchesTerm(game, term) {
+  if (game._nameLower.includes(term)) return true;
+  const aliases = GAME_ALIASES[term];
+  if (!aliases) return false;
+  for (const a of aliases) {
+    if (game._nameLower.includes(a)) return true;
+  }
+  return false;
+}
+
+function pageDatabaseGames({ filter, offset, limit }) {
+  const term = String(filter || '').trim().toLowerCase();
+  const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+  const pageSize = Number.isFinite(limit) ? Math.min(500, Math.max(1, limit)) : 200;
+  const items = [];
+  let matchIndex = 0;
+  let hasMore = false;
+  const games = databaseCache.games;
+  for (let i = 0; i < games.length; i++) {
+    const g = games[i];
+    if (term && !gameNameMatchesTerm(g, term)) continue;
+    if (matchIndex >= start && items.length < pageSize) {
+      items.push({
+        id: g.id,
+        name: g.name,
+        exe: g.exe,
+        icon: g.icon || '',
+        isLauncher: g.isLauncher,
+        usesNewDetection: g.usesNewDetection
+      });
+    }
+    matchIndex++;
+    if (items.length >= pageSize && matchIndex > start + pageSize) {
+      hasMore = true;
+      break;
+    }
+  }
+  return { items, offset: start, limit: pageSize, hasMore };
+}
+
+async function readJsonIfExists(filePath, fallback) {
+  try {
+    const raw = await fsp.readFile(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+async function writeJson(filePath, data) {
+  await fsp.writeFile(filePath, JSON.stringify(data, null, 2) + os.EOL, 'utf8');
+}
+
+async function syncGameList(gameListPath) {
+  const res = await fetch(DISCORD_DETECTABLE_URL, {
+    headers: {
+      'User-Agent': 'RYZEGameLauncher/0.1.0',
+      'Accept': 'application/json'
+    }
+  });
+  if (!res.ok) throw new Error(`Discord API error: ${res.status} ${res.statusText}`);
+  const text = (await res.text()).trim();
+  let localTrimmed = null;
+  try {
+    localTrimmed = (await fsp.readFile(gameListPath, 'utf8')).trim();
+  } catch {
+    localTrimmed = null;
+  }
+  if (localTrimmed !== text) {
+    if (localTrimmed != null) {
+      try { await fsp.copyFile(gameListPath, gameListPath + '.bak'); } catch { /* ignore */ }
+    }
+    await fsp.writeFile(gameListPath, text + os.EOL, 'utf8');
+    return { updated: true };
+  }
+  return { updated: false };
+}
+
+async function findDummyGameTemplate() {
+  if (process.env.DUMMYGAME_EXE && fs.existsSync(process.env.DUMMYGAME_EXE)) {
+    return process.env.DUMMYGAME_EXE;
+  }
+  if (app.isPackaged) {
+    const bundled = path.join(process.resourcesPath, 'dummygame', 'DummyGame.exe');
+    if (fs.existsSync(bundled)) return bundled;
+  }
+  const repoBundled = path.join(app.getAppPath(), 'resources', 'dummygame', 'DummyGame.exe');
+  if (fs.existsSync(repoBundled)) return repoBundled;
+  return null;
+}
+
+async function ensureFakeExeForGame(game, paths) {
+  const dummySourceExe = await findDummyGameTemplate();
+  if (!dummySourceExe) {
+    throw new Error('Could not find DummyGame.exe. Set DUMMYGAME_EXE env var to its path.');
+  }
+  ensureDirSync(paths.gamesRoot);
+  const appIdFolder = String(game.appId || game.id) || sanitizeFolderName(game.name);
+  const exeRelPath = normalizeExeRelPath(game.exe);
+  const exeFolderPart = path.dirname(exeRelPath) === '.' ? '' : path.dirname(exeRelPath);
+  const exeFileName = path.basename(exeRelPath);
+  const gameFolder = path.join(paths.gamesRoot, appIdFolder, exeFolderPart);
+  ensureDirSync(gameFolder);
+  const destExePath = path.join(gameFolder, exeFileName);
+
+  try {
+    await fsp.copyFile(dummySourceExe, destExePath);
+  } catch {
+    // keep existing copy (e.g. file in use)
+  }
+  const sourceDir = path.dirname(dummySourceExe);
+  const dummyBase = path.basename(dummySourceExe, path.extname(dummySourceExe));
+  const sidecars = await fsp.readdir(sourceDir);
+  for (const fileName of sidecars) {
+    if (!fileName.toLowerCase().startsWith(dummyBase.toLowerCase() + '.')) continue;
+    if (fileName.toLowerCase() === path.basename(dummySourceExe).toLowerCase()) continue;
+    const src = path.join(sourceDir, fileName);
+    const dest = path.join(gameFolder, fileName);
+    try {
+      await fsp.copyFile(src, dest);
+    } catch {
+      // ignore
+    }
+  }
+  const existing = await fsp.readdir(gameFolder);
+  for (const fileName of existing) {
+    const lower = fileName.toLowerCase();
+    if (lower === exeFileName.toLowerCase()) continue;
+    if (lower.startsWith(dummyBase.toLowerCase() + '.')) {
+      try {
+        await fsp.unlink(path.join(gameFolder, fileName));
+      } catch {
+        // ignore
+      }
+    }
+  }
+  return { destExePath, workingDirectory: path.dirname(destExePath) };
+}
+
+function createTray() {
+  if (tray) return;
+  tray = new Tray(path.join(__dirname, '..', 'build', 'icon.ico'));
+  tray.setToolTip('RYZE Game Launcher');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Show RYZE', click: () => showMainWindow() },
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } }
+  ]));
+  tray.on('click', () => showMainWindow());
+}
+
+function showMainWindow() {
+  if (!mainWindow) return;
+  mainWindow.show();
+  mainWindow.focus();
+  if (tray) {
+    tray.destroy();
+    tray = null;
+  }
+}
+
+async function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1100,
+    height: 700,
+    minWidth: 900,
+    minHeight: 600,
+    frame: false,
+    backgroundColor: '#36393f',
+    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  mainWindow.on('close', (e) => {
+    if (settings.trayOnClose && !isQuitting) {
+      e.preventDefault();
+      mainWindow.hide();
+      createTray();
+    }
+  });
+  await mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+}
+
+app.on('before-quit', () => {
+  isQuitting = true;
+});
+
+app.whenReady().then(async () => {
+  loadSettings();
+  if (settings.startup) {
+    app.setLoginItemSettings({ openAtLogin: true });
+  }
+  await createWindow();
+  app.on('activate', async () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      await createWindow();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+ipcMain.handle('app/window/minimize', () => {
+  mainWindow?.minimize();
+});
+
+ipcMain.handle('app/window/maximize', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+});
+
+ipcMain.handle('app/window/close', () => {
+  mainWindow?.close();
+});
+
+let zoomFactor = 1.0;
+
+ipcMain.handle('app/zoom', (_e, dir) => {
+  if (typeof dir === 'number') {
+    zoomFactor = Math.min(2.0, Math.max(0.5, dir));
+  } else if (dir === 'zoom-in') {
+    zoomFactor = Math.min(2.0, Math.round((zoomFactor + 0.1) * 10) / 10);
+  } else if (dir === 'zoom-out') {
+    zoomFactor = Math.max(0.5, Math.round((zoomFactor - 0.1) * 10) / 10);
+  } else {
+    zoomFactor = 1.0;
+  }
+  mainWindow?.webContents.setZoomFactor(zoomFactor);
+  return zoomFactor;
+});
+
+ipcMain.handle('app/settings/get', () => ({ ...settings }));
+
+ipcMain.handle('app/settings/set', (_e, patch) => {
+  settings = { ...settings, ...(patch || {}) };
+  saveSettings();
+  if (patch && 'startup' in patch) {
+    app.setLoginItemSettings({ openAtLogin: !!patch.startup });
+  }
+  return { ...settings };
+});
+
+ipcMain.handle('app/folder/select', async () => {
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Select games folder',
+    properties: ['openDirectory']
+  });
+  if (res.canceled || !res.filePaths.length) return null;
+  return res.filePaths[0];
+});
+
+ipcMain.handle('app/openExternal', (_e, url) => {
+  if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
+});
+
+ipcMain.handle('app/getInfo', () => ({
+  version: app.getVersion(),
+  lastUpdate: 'August 8, 2026',
+  fixes: [
+    'Full game launcher for Discord quest tracking',
+    'Store with search, popular aliases and category filters',
+    'Game icons from Discord CDN',
+    'System tray with quick controls',
+    'Auto-hide scrollbar across the whole app',
+    'About, Terms & Conditions and built-in update checker'
+  ]
+}));
+
+const DEV_DISCORD_ID = '924218650301456414';
+const DEV_DISCORD_AVATAR_FALLBACK = 'https://cdn.discordapp.com/avatars/924218650301456414/8e41cc1375823e4fcc61524cdc944b70?size=128';
+
+ipcMain.handle('app/dev/profile', async () => {
+  try {
+    const res = await fetch(`https://discordpfp.vercel.app/api/avatar?id=${DEV_DISCORD_ID}`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(8000)
+    });
+    const loc = res.headers.get('location');
+    if (loc) return { avatarUrl: loc.replace(/size=\d+/, 'size=128') };
+  } catch {
+    // fall back to known CDN url
+  }
+  return { avatarUrl: DEV_DISCORD_AVATAR_FALLBACK };
+});
+
+ipcMain.handle('app/update/check', async () => {
+  const current = app.getVersion();
+  let reachable = false;
+  let releaseFound = false;
+  let latest = '';
+  let url = '';
+  let notes = [];
+  let published = '';
+  try {
+    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'ryze-game-launcher' }
+    });
+    reachable = true;
+    if (res.ok) {
+      const rel = await res.json();
+      releaseFound = true;
+      latest = String(rel.tag_name || '');
+      url = (rel.assets || []).find((a) => /\.exe$/i.test(a.name))?.browser_download_url || '';
+      notes = String(rel.body || '')
+        .split(/\r?\n/)
+        .map((s) => s.replace(/^[-*]\s*/, '').trim())
+        .filter(Boolean);
+      published = rel.published_at ? new Date(rel.published_at).toLocaleDateString() : '';
+    }
+  } catch {
+    // offline or unreachable
+  }
+  return {
+    current,
+    latest,
+    hasUpdate: releaseFound && latest !== '' && compareVersions(latest, current) > 0,
+    releaseFound,
+    reachable,
+    url,
+    notes,
+    published
+  };
+});
+
+ipcMain.handle('launcher/syncGameList', async () => {
+  const paths = getUserDataPaths();
+  ensureDirSync(paths.userData);
+  const result = await syncGameList(paths.gameListPath);
+  await loadDatabaseCache(paths.gameListPath);
+  return { ...result, gameListPath: paths.gameListPath };
+});
+
+ipcMain.handle('launcher/getDatabaseGames', async (_evt, { filter, offset, limit } = {}) => {
+  const paths = getUserDataPaths();
+  if (!databaseCache.loaded || databaseCache.gameListPath !== paths.gameListPath) {
+    await loadDatabaseCache(paths.gameListPath);
+  }
+  return pageDatabaseGames({ filter, offset, limit });
+});
+
+ipcMain.handle('launcher/getMyGames', async () => {
+  const paths = getUserDataPaths();
+  const list = await readJsonIfExists(paths.myGamesPath, []);
+  const safe = Array.isArray(list) ? list : [];
+  if (databaseCache.loaded) {
+    for (const g of safe) {
+      if (!g.icon) {
+        const match = databaseCache.games.find(d => String(d.id) === String(g.appId) && String(d.exe) === String(g.exe));
+        if (match && match.icon) g.icon = match.icon;
+      }
+    }
+  }
+  return safe;
+});
+
+ipcMain.handle('launcher/addGame', async (_evt, game) => {
+  const paths = getUserDataPaths();
+  ensureDirSync(paths.userData);
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const safeList = Array.isArray(myGames) ? myGames : [];
+  const entry = {
+    appId: String(game?.id || ''),
+    name: String(game?.name || 'Game'),
+    exe: String(game?.exe || ''),
+    icon: String(game?.icon || ''),
+    isFavorite: false,
+    usesNewDetection: Boolean(game?.usesNewDetection)
+  };
+  const key = `${entry.appId}::${entry.exe}`;
+  const existingKey = (g) => `${String(g?.appId || '')}::${String(g?.exe || '')}`;
+  if (!safeList.some(g => existingKey(g) === key)) {
+    safeList.push(entry);
+    await writeJson(paths.myGamesPath, safeList);
+  }
+  return entry;
+});
+
+ipcMain.handle('launcher/toggleFavorite', async (_evt, { appId, exe }) => {
+  const paths = getUserDataPaths();
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const safeList = Array.isArray(myGames) ? myGames : [];
+  let updated = null;
+  for (const g of safeList) {
+    if (String(g?.appId || '') === String(appId || '') && String(g?.exe || '') === String(exe || '')) {
+      g.isFavorite = !g.isFavorite;
+      updated = g;
+      break;
+    }
+  }
+  await writeJson(paths.myGamesPath, safeList);
+  return updated;
+});
+
+ipcMain.handle('launcher/deleteGame', async (_evt, { appId, exe }) => {
+  const paths = getUserDataPaths();
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const safeList = Array.isArray(myGames) ? myGames : [];
+  const before = safeList.length;
+  const filtered = safeList.filter(g => !(
+    String(g?.appId || '') === String(appId || '') &&
+    String(g?.exe || '') === String(exe || '')
+  ));
+  if (filtered.length !== before) {
+    await writeJson(paths.myGamesPath, filtered);
+  }
+  return { ok: true, removed: before - filtered.length };
+});
+
+ipcMain.handle('launcher/createShortcut', async (_evt, { appId, exe }) => {
+  if (process.platform !== 'win32') {
+    return { ok: false, error: 'Shortcuts are only supported on Windows.' };
+  }
+  const paths = getUserDataPaths();
+  ensureDirSync(paths.userData);
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const safeList = Array.isArray(myGames) ? myGames : [];
+  const game = safeList.find(g =>
+    String(g?.appId || '') === String(appId || '') &&
+    String(g?.exe || '') === String(exe || '')
+  );
+  if (!game) return { ok: false, error: 'Game not found in library.' };
+
+  try {
+    const { destExePath, workingDirectory } = await ensureFakeExeForGame(game, paths);
+    const desktopDir = app.getPath('desktop');
+    const baseName = sanitizeFolderName(game.name || path.basename(destExePath, path.extname(destExePath))) || 'Game';
+    let shortcutPath = path.join(desktopDir, `${baseName}.lnk`);
+    if (fs.existsSync(shortcutPath)) {
+      for (let i = 2; i < 1000; i++) {
+        const candidate = path.join(desktopDir, `${baseName} (${i}).lnk`);
+        if (!fs.existsSync(candidate)) {
+          shortcutPath = candidate;
+          break;
+        }
+      }
+    }
+    const displayName = String(game?.name || path.basename(destExePath));
+    const escaped = displayName.replace(/"/g, '\\"');
+    const args = `"${escaped}"`;
+    const ok = shell.writeShortcutLink(shortcutPath, {
+      target: destExePath,
+      cwd: workingDirectory,
+      args
+    });
+    if (!ok) return { ok: false, error: 'Failed to create shortcut.' };
+    return { ok: true, path: shortcutPath };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e || 'Failed to create shortcut') };
+  }
+});
+
+ipcMain.handle('launcher/selectGame', async () => {
+  return true;
+});
+
+ipcMain.handle('launcher/launchGame', async (_evt, game) => {
+  if (runningProc) {
+    return { ok: false, error: 'A game is already running.' };
+  }
+  const paths = getUserDataPaths();
+  ensureDirSync(paths.userData);
+  const { destExePath, workingDirectory } = await ensureFakeExeForGame(game, paths);
+  const displayName = String(game?.name || path.basename(destExePath));
+
+  runningProc = spawn(destExePath, [displayName, settings.theme || 'black'], {
+    cwd: workingDirectory,
+    windowsHide: false,
+    stdio: 'ignore'
+  });
+
+  runningProc.once('exit', () => {
+    runningProc = null;
+    if (settings.reopenOnExit && mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow?.webContents.send('launcher/gameExited');
+  });
+
+  if (settings.closeOnLaunch) mainWindow?.hide();
+
+  return { ok: true, exePath: destExePath };
+});
+
+ipcMain.handle('launcher/stopGame', async () => {
+  if (!runningProc) return { ok: true };
+  try {
+    runningProc.kill();
+  } catch {
+    // ignore
+  }
+  runningProc = null;
+  return { ok: true };
+});
