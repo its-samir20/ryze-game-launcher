@@ -1,7 +1,7 @@
 {
   "name": "ryze-game-launcher",
   "productName": "RYZE Game Launcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "RYZE Game Launcher - fake game launcher for Discord quest tracking.",
   "main": "src/main.js",
   "type": "commonjs",
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "build:dummy": "dotnet build src/DummyGame -c Release",
-    "dist": "electron-builder --win portable"
+    "dist": "electron-builder --win nsis portable"
   },
   "build": {
     "appId": "com.ryze.gamelauncher",
@@ -28,10 +28,31 @@
     "win": {
       "icon": "build/icon.ico",
       "target": [
+        "nsis",
         "portable"
       ],
       "artifactName": "RYZE-Game-Launcher.exe"
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "RYZE Game Launcher",
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh",
+      "artifactName": "RYZE-Game-Launcher-Setup-${version}.exe"
+    },
+    "extraFiles": [
+      {
+        "from": "build/vc_redist.x64.exe",
+        "to": "vc_redist.x64.exe"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "^37.0.0",

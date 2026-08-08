@@ -1,5 +1,7 @@
 node_modules/
 dist/win-unpacked/
+dist/*.exe
+dist/*.blockmap
 build.log
 install_debug.log
 *.log
