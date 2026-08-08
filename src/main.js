@@ -389,7 +389,7 @@ async function ensureFakeExeForGame(game, paths) {
 
 function createTray() {
   if (tray) return;
-  tray = new Tray(path.join(__dirname, '..', 'build', 'icon.ico'));
+  tray = new Tray(path.join(__dirname, '..', 'resources', 'tray-icon.png'));
   tray.setToolTip('RYZE Game Launcher');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Show RYZE', click: () => showMainWindow() },
@@ -402,10 +402,6 @@ function showMainWindow() {
   if (!mainWindow) return;
   mainWindow.show();
   mainWindow.focus();
-  if (tray) {
-    tray.destroy();
-    tray = null;
-  }
 }
 
 async function createWindow() {
@@ -416,7 +412,7 @@ async function createWindow() {
     minHeight: 600,
     frame: false,
     backgroundColor: '#36393f',
-    icon: path.join(__dirname, '..', 'build', 'icon.ico'),
+    icon: path.join(__dirname, 'renderer', 'logo.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -424,7 +420,7 @@ async function createWindow() {
     }
   });
   mainWindow.on('close', (e) => {
-    if (settings.trayOnClose && !isQuitting) {
+    if (!isQuitting) {
       e.preventDefault();
       mainWindow.hide();
       createTray();
@@ -443,6 +439,7 @@ app.whenReady().then(async () => {
     app.setLoginItemSettings({ openAtLogin: true });
   }
   await createWindow();
+  createTray();
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
@@ -514,14 +511,14 @@ ipcMain.handle('app/openExternal', (_e, url) => {
 
 ipcMain.handle('app/getInfo', () => ({
   version: app.getVersion(),
-  lastUpdate: 'August 8, 2026',
+  lastUpdate: 'August 9, 2026',
   fixes: [
+    'Runs in system tray - closing the window hides to tray, tray menu Quit fully exits',
+    'Fixed crash on close (tray icon now loads correctly)',
+    'New cyberpunk logo (app icon, installer and in-app)',
     'Fake game window for rich presence',
     'Store with search, popular aliases and category filters',
-    'Game icons loaded automatically',
-    'System tray with quick controls',
-    'Auto-hide scrollbar across the whole app',
-    'About, Terms & Conditions and built-in update checker'
+    'Built-in update checker'
   ]
 }));
 

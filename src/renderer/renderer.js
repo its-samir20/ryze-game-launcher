@@ -885,7 +885,6 @@ async function openSettingsModal() {
   $('setGamePath').value = appSettings.gamePath || '';
   $('setCloseOnLaunch').checked = !!appSettings.closeOnLaunch;
   $('setReopenOnExit').checked = appSettings.reopenOnExit !== false;
-  $('setTrayOnClose').checked = !!appSettings.trayOnClose;
   applyTheme(appSettings.theme);
   $('settingsModal').style.display = 'flex';
   try {
@@ -928,7 +927,6 @@ $('setAutoScan').addEventListener('change', (e) => saveSetting({ autoScan: e.tar
 $('setScanInterval').addEventListener('change', (e) => saveSetting({ scanInterval: parseInt(e.target.value, 10) }));
 $('setCloseOnLaunch').addEventListener('change', (e) => saveSetting({ closeOnLaunch: e.target.checked }));
 $('setReopenOnExit').addEventListener('change', (e) => saveSetting({ reopenOnExit: e.target.checked }));
-$('setTrayOnClose').addEventListener('change', (e) => saveSetting({ trayOnClose: e.target.checked }));
 
 $('setBrowse').addEventListener('click', async () => {
   const folder = await launcherApi.selectFolder();

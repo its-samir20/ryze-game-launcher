@@ -1,7 +1,7 @@
 {
   "name": "ryze-game-launcher",
   "productName": "RYZE Game Launcher",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "RYZE Game Launcher - a game launcher for quest tracking with a fake game window for rich presence.",
   "main": "src/main.js",
   "type": "commonjs",

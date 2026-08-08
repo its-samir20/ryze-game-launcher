@@ -95,9 +95,9 @@ nsis:
 
     !addincludedir "C:\Users\S A M I R\Music\RYZE Game Launcher\build"
     !include "C:\Users\S A M I R\Music\RYZE Game Launcher\build\installer.nsh"
+    !include "C:\Users\SAMIR~1\AppData\Local\Temp\t-WMtKEi\0-messages.nsh"
+    !include "C:\Users\SAMIR~1\AppData\Local\Temp\t-WMtKEi\1-messages.nsh"
     !addplugindir /x86-unicode "C:\Users\S A M I R\AppData\Local\electron-builder\Cache\nsis\nsis-resources-3.4.1\plugins\x86-unicode"
-    !include "C:\Users\SAMIR~1\AppData\Local\Temp\t-Wwl1zd\0-messages.nsh"
-    !include "C:\Users\SAMIR~1\AppData\Local\Temp\t-Wwl1zd\1-messages.nsh"
 
     Var newStartMenuLink
     Var oldStartMenuLink
