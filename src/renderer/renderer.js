@@ -134,7 +134,7 @@ function updateFeatured() {
     btn.textContent = '+  Add to Library';
   } else if (!state.db.length) {
     title.textContent = 'Loading game database…';
-    sub.textContent = "Fetching Discord's game list. This can take a moment on first run.";
+    sub.textContent = "Fetching the game list. This can take a moment on first run.";
     btn.disabled = true;
     btn.textContent = '…';
   } else {
@@ -346,7 +346,7 @@ function selectGame(game) {
 
   const note = $('detailNote');
   if (nd) {
-    note.textContent = 'Note: Discord lists this game with new detection (no fixed executable). The status is set directly via Discord RPC — keep Discord open.';
+    note.textContent = 'Note: this game uses new detection (no fixed executable). The status is set directly via rich presence.';
     note.style.display = 'block';
   } else {
     note.style.display = 'none';
@@ -484,7 +484,7 @@ async function toggleLaunch() {
 async function launchGame() {
   const entry = state.selected;
   const name = entry?.name || 'Game';
-  showLaunchModal('launching', `${name} is launching...`, 'Preparing the game and starting Discord detection', '');
+  showLaunchModal('launching', `${name} is launching...`, 'Preparing the game and starting rich presence', '');
   let r;
   try {
     r = await launcherApi.launchGame(entry);
@@ -497,7 +497,7 @@ async function launchGame() {
     state.runningGame = { appId: entry.appId, exe: entry.exe };
     rememberPlayed(entry);
     setLaunchUi();
-    showLaunchModal('ok', `${name} is now running`, 'Discord should now show you as playing. If it does not, enable Activity Status in Discord settings (Settings > Activity Privacy).', '');
+    showLaunchModal('ok', `${name} is now running`, 'You should now appear as playing. If it does not show, enable Activity Status in your app settings (Settings > Activity Privacy).', '');
   } else {
     showLaunchModal('err', `Couldn't launch ${name}`, r.error || 'Unknown error', '');
   }

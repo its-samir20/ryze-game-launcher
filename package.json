@@ -2,7 +2,7 @@
   "name": "ryze-game-launcher",
   "productName": "RYZE Game Launcher",
   "version": "0.2.0",
-  "description": "RYZE Game Launcher - a game launcher for Discord quest tracking with a fake game window for rich presence.",
+  "description": "RYZE Game Launcher - a game launcher for quest tracking with a fake game window for rich presence.",
   "main": "src/main.js",
   "type": "commonjs",
   "private": true,

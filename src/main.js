@@ -308,7 +308,7 @@ async function syncGameList(gameListPath) {
       'Accept': 'application/json'
     }
   });
-  if (!res.ok) throw new Error(`Discord API error: ${res.status} ${res.statusText}`);
+  if (!res.ok) throw new Error(`Game API error: ${res.status} ${res.statusText}`);
   const text = (await res.text()).trim();
   let localTrimmed = null;
   try {
@@ -516,9 +516,9 @@ ipcMain.handle('app/getInfo', () => ({
   version: app.getVersion(),
   lastUpdate: 'August 8, 2026',
   fixes: [
-    'Fake game window for Discord rich presence',
+    'Fake game window for rich presence',
     'Store with search, popular aliases and category filters',
-    'Game icons from Discord CDN',
+    'Game icons loaded automatically',
     'System tray with quick controls',
     'Auto-hide scrollbar across the whole app',
     'About, Terms & Conditions and built-in update checker'
