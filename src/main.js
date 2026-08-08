@@ -34,6 +34,43 @@ autoUpdater.on('error', (err) => {
   sendUpdateStatus({ state: 'error', message: String(err && err.message ? err.message : err) });
 });
 
+function cleanUpdaterCache() {
+  try {
+    const cacheDir = path.join(app.getPath('localAppData'), 'ryze-game-launcher-updater');
+    if (!fs.existsSync(cacheDir)) return;
+    const current = app.getVersion();
+    let freed = 0;
+    for (const entry of fs.readdirSync(cacheDir)) {
+      const full = path.join(cacheDir, entry);
+      try {
+        if (entry === 'pending') {
+          if (fs.statSync(full).isDirectory()) {
+            fs.rmSync(full, { recursive: true, force: true });
+            freed++;
+          }
+          continue;
+        }
+        if (entry.startsWith('temp-')) {
+          fs.rmSync(full, { recursive: true, force: true });
+          freed++;
+          continue;
+        }
+        if (/\.exe(\.blockmap)?$/i.test(entry) && !entry.includes(current)) {
+          fs.rmSync(full, { recursive: true, force: true });
+          freed++;
+        }
+      } catch {
+        // file in use or permission issue - skip
+      }
+    }
+    if (freed > 0) {
+      console.log(`[updater] cleaned ${freed} stale file(s) from update cache`);
+    }
+  } catch {
+    // cache dir not accessible - ignore
+  }
+}
+
 function compareVersions(a, b) {
   const pa = String(a).replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
   const pb = String(b).replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0);
@@ -461,6 +498,7 @@ app.on('before-quit', () => {
 
 app.whenReady().then(async () => {
   loadSettings();
+  cleanUpdaterCache();
   if (settings.startup) {
     app.setLoginItemSettings({ openAtLogin: true });
   }
