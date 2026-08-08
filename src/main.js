@@ -516,7 +516,7 @@ ipcMain.handle('app/getInfo', () => ({
   version: app.getVersion(),
   lastUpdate: 'August 8, 2026',
   fixes: [
-    'Full game launcher for Discord quest tracking',
+    'Fake game window for Discord rich presence',
     'Store with search, popular aliases and category filters',
     'Game icons from Discord CDN',
     'System tray with quick controls',
