@@ -8,6 +8,8 @@ const { autoUpdater } = require('electron-updater');
 
 const DISCORD_DETECTABLE_URL = 'https://discord.com/api/applications/detectable';
 const UPDATE_REPO = 'its-samir20/ryze-game-launcher';
+const UPDATE_DOWNLOAD_BASE = `https://github.com/${UPDATE_REPO}/releases/latest/download`;
+const UPDATE_ATOM_URL = `https://github.com/${UPDATE_REPO}/releases.atom`;
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
@@ -83,11 +85,55 @@ function compareVersions(a, b) {
   return 0;
 }
 
-function parseReleaseNotes(body) {
-  return String(body || '')
-    .split(/\r?\n/)
-    .map((s) => s.replace(/^[-*]\s*/, '').replace(/^#+\s*/, '').trim())
-    .filter(Boolean);
+function decodeHtmlEntities(str) {
+  return String(str)
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function parseLatestYml(text) {
+  const version = /^version:\s*(\S+)\s*$/m.exec(String(text || ''));
+  const pathM = /^path:\s*(\S+)\s*$/m.exec(String(text || ''));
+  const urlM = /^\s*-\s*url:\s*(\S+)\s*$/m.exec(String(text || ''));
+  return {
+    version: version ? version[1] : '',
+    path: pathM ? pathM[1] : '',
+    url: urlM ? urlM[1] : ''
+  };
+}
+
+function parseAtomEntry(entryStr) {
+  const titleM = /<title>(.*?)<\/title>/.exec(entryStr);
+  const updatedM = /<updated>(.*?)<\/updated>/.exec(entryStr);
+  const contentM = /<content[^>]*>(.*?)<\/content>/s.exec(entryStr);
+  const title = titleM ? decodeHtmlEntities(titleM[1]).trim() : '';
+  const published = updatedM
+    ? (new Date(updatedM[1]).toLocaleDateString() || '')
+    : '';
+  let notes = [];
+  if (contentM) {
+    const html = decodeHtmlEntities(decodeHtmlEntities(contentM[1]));
+    const lis = html.match(/<li>(.*?)<\/li>/gs) || [];
+    notes = lis
+      .map((l) => decodeHtmlEntities(l.replace(/<\/?li>/g, '')).trim())
+      .filter(Boolean);
+    if (!notes.length) {
+      const ps = html.match(/<p>(.*?)<\/p>/gs) || [];
+      notes = ps
+        .map((p) => decodeHtmlEntities(p.replace(/<\/?p>/g, '')).trim())
+        .filter(Boolean);
+    }
+  }
+  return { title, notes, published };
+}
+
+function splitAtomEntries(text) {
+  return String(text || '').split(/<entry[ >]/).slice(1);
 }
 
 app.setPath('userData', path.join(app.getPath('appData'), 'ryze-game-launcher'));
@@ -607,14 +653,20 @@ ipcMain.handle('app/whatsnew', async () => {
   let notes = [];
   let published = '';
   try {
-    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/tags/v${current}`, {
-      signal: AbortSignal.timeout(8000),
+    const atomRes = await fetch(UPDATE_ATOM_URL, {
+      signal: AbortSignal.timeout(10000),
       headers: { 'User-Agent': 'ryze-game-launcher' }
     });
-    if (res.ok) {
-      const rel = await res.json();
-      notes = parseReleaseNotes(rel.body);
-      published = rel.published_at ? new Date(rel.published_at).toLocaleDateString() : '';
+    if (atomRes.ok) {
+      const entries = splitAtomEntries(await atomRes.text());
+      for (const entry of entries) {
+        const parsed = parseAtomEntry(entry);
+        if (parsed.title.includes(current)) {
+          notes = parsed.notes;
+          published = parsed.published;
+          break;
+        }
+      }
     }
   } catch {
     // offline - show popup with generic message
@@ -654,21 +706,37 @@ ipcMain.handle('app/update/check', async () => {
   let notes = [];
   let published = '';
   try {
-    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
-      signal: AbortSignal.timeout(8000),
+    const ymlRes = await fetch(`${UPDATE_DOWNLOAD_BASE}/latest.yml`, {
+      signal: AbortSignal.timeout(10000),
       headers: { 'User-Agent': 'ryze-game-launcher' }
     });
-    reachable = true;
-    if (res.ok) {
-      const rel = await res.json();
-      releaseFound = true;
-      latest = String(rel.tag_name || '');
-      url = (rel.assets || []).find((a) => /\.exe$/i.test(a.name))?.browser_download_url || '';
-      notes = parseReleaseNotes(rel.body);
-      published = rel.published_at ? new Date(rel.published_at).toLocaleDateString() : '';
+    reachable = ymlRes.ok;
+    if (ymlRes.ok) {
+      const info = parseLatestYml(await ymlRes.text());
+      releaseFound = !!info.version;
+      latest = info.version;
+      url = info.path ? `${UPDATE_DOWNLOAD_BASE}/${info.path}` : '';
     }
   } catch {
     // offline or unreachable
+  }
+  if (latest) {
+    try {
+      const atomRes = await fetch(UPDATE_ATOM_URL, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'ryze-game-launcher' }
+      });
+      if (atomRes.ok) {
+        const first = splitAtomEntries(await atomRes.text())[0];
+        if (first) {
+          const parsed = parseAtomEntry(first);
+          notes = parsed.notes;
+          published = parsed.published;
+        }
+      }
+    } catch {
+      // release notes are optional
+    }
   }
   return {
     current,

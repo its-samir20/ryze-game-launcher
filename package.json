@@ -1,7 +1,7 @@
 {
   "name": "ryze-game-launcher",
   "productName": "RYZE Game Launcher",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "RYZE Game Launcher - a game launcher for quest tracking with a fake game window for rich presence.",
   "main": "src/main.js",
   "type": "commonjs",
@@ -53,9 +53,8 @@
       }
     ],
     "publish": {
-      "provider": "github",
-      "owner": "its-samir20",
-      "repo": "ryze-game-launcher"
+      "provider": "generic",
+      "url": "https://github.com/its-samir20/ryze-game-launcher/releases/latest/download"
     }
   },
   "devDependencies": {
