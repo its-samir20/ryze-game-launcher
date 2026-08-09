@@ -254,6 +254,7 @@ function toDatabaseGames(detectableApps) {
       isLauncher: Boolean(bestExe?.is_launcher),
       usesNewDetection: !bestExe || !bestExe.name,
       icon: iconHash ? `https://cdn.discordapp.com/app-icons/${appId}/${iconHash}.png?size=128` : '',
+      themes: Array.isArray(appEntry.themes) ? appEntry.themes : [],
       _nameLower: cleanGameName(rawName).toLowerCase()
     });
   }
@@ -376,7 +377,7 @@ function gameNameMatchesTerm(game, term) {
   return false;
 }
 
-function pageDatabaseGames({ filter, offset, limit }) {
+function pageDatabaseGames({ filter, offset, limit, category }) {
   const term = String(filter || '').trim().toLowerCase();
   const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
   const pageSize = Number.isFinite(limit) ? Math.min(500, Math.max(1, limit)) : 200;
@@ -384,8 +385,10 @@ function pageDatabaseGames({ filter, offset, limit }) {
   let matchIndex = 0;
   let hasMore = false;
   const games = databaseCache.games;
+  const cat = String(category || 'All');
   for (let i = 0; i < games.length; i++) {
     const g = games[i];
+    if (cat !== 'All' && !(g.themes || []).includes(cat)) continue;
     if (term && !gameNameMatchesTerm(g, term)) continue;
     if (matchIndex >= start && items.length < pageSize) {
       items.push({
@@ -394,7 +397,8 @@ function pageDatabaseGames({ filter, offset, limit }) {
         exe: g.exe,
         icon: g.icon || '',
         isLauncher: g.isLauncher,
-        usesNewDetection: g.usesNewDetection
+        usesNewDetection: g.usesNewDetection,
+        themes: Array.isArray(g.themes) ? g.themes : []
       });
     }
     matchIndex++;
@@ -776,12 +780,12 @@ ipcMain.handle('launcher/syncGameList', async () => {
   return { ...result, gameListPath: paths.gameListPath };
 });
 
-ipcMain.handle('launcher/getDatabaseGames', async (_evt, { filter, offset, limit } = {}) => {
+ipcMain.handle('launcher/getDatabaseGames', async (_evt, { filter, offset, limit, category } = {}) => {
   const paths = getUserDataPaths();
   if (!databaseCache.loaded || databaseCache.gameListPath !== paths.gameListPath) {
     await loadDatabaseCache(paths.gameListPath);
   }
-  return pageDatabaseGames({ filter, offset, limit });
+  return pageDatabaseGames({ filter, offset, limit, category });
 });
 
 ipcMain.handle('launcher/getMyGames', async () => {

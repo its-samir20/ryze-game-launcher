@@ -264,6 +264,7 @@ async function renderStore() {
   }
 
   updateFeatured();
+  renderStoreAllGames();
 }
 
 // ---------------- library ----------------
@@ -736,18 +737,22 @@ async function doZoom(target) {
 
 async function openUpdateModal() {
   $('updateModal').style.display = 'flex';
+  await runUpdateCheck();
+}
+
+async function runUpdateCheck() {
   $('updateStatus').textContent = 'Checking for updates...';
   $('updateStatus').className = 'update-status';
   $('updateDownload').style.display = 'none';
-  $('verVal').textContent = '...';
-  $('updateDate').textContent = '...';
-  $('fixList').innerHTML = '';
+  $('updateRefresh').style.display = 'none';
+  $('updateProgress').style.display = 'none';
   let res;
   try {
     res = await launcherApi.checkForUpdates();
   } catch (err) {
     $('updateStatus').textContent = 'Could not reach the update server.';
     $('updateStatus').className = 'update-status err';
+    $('updateRefresh').style.display = 'inline-block';
     return;
   }
   $('verVal').textContent = res.current;
@@ -778,6 +783,7 @@ async function openUpdateModal() {
         $('updateStatus').className = 'update-status err';
         $('updateDownload').disabled = false;
         $('updateDownload').textContent = 'Try Again';
+        $('updateRefresh').style.display = 'inline-block';
         return;
       }
     };
@@ -791,7 +797,10 @@ async function openUpdateModal() {
     $('updateStatus').textContent = 'You are on the latest version.';
     $('updateStatus').className = 'update-status ok';
   }
+  $('updateRefresh').style.display = 'inline-block';
 }
+
+$('updateRefresh').addEventListener('click', runUpdateCheck);
 
 $('modalClose').addEventListener('click', () => {
   $('updateModal').style.display = 'none';
@@ -1144,6 +1153,144 @@ function initAutoScrollbar() {
   }, true);
 }
 
+
+// ---------------- browse all games ----------------
+let storeOffset = 0;
+let storeDone = false;
+let storeLoading = false;
+const STORE_BATCH = 200;
+const STORE_CAP = 10000;
+
+function storeGridCardHtml(g) {
+  const icon = g.icon
+    ? '<img class="game-img" loading="lazy" src="' + esc(g.icon) + '" onerror="this.style.display=\'none\';this.parentElement.classList.add(\'no-cover\');" onload="this.style.display=\'block\';">'
+    : '<div class="game-cover-ph">' + esc((g.name || '?').charAt(0).toUpperCase()) + '</div>';
+  return '<div class="game-cover">' + icon + '</div>' +
+         '<div class="game-info">' +
+         '<div class="game-name" title="' + esc(g.name) + '">' + esc(g.name) + '</div>' +
+         '<div class="game-sub">' + esc(g.exe) + '</div>' +
+         '<button class="game-add" type="button">Add to Library</button>' +
+         '</div>';
+}
+
+function renderStoreChips() {
+  const wrap = $('storeCats');
+  if (!wrap) return;
+  const cats = ['All'].concat(state.storeThemes || []);
+  const active = state.storeCat || 'All';
+  let html = '';
+  for (const c of cats) {
+    html += '<button class="cat-btn' + (c === active ? ' active' : '') + '" data-cat="' + esc(c) + '">' + esc(c) + '</button>';
+  }
+  wrap.innerHTML = html;
+}
+
+function setupStoreCats() {
+  const wrap = $('storeCats');
+  if (!wrap || wrap.dataset.wired) return;
+  wrap.dataset.wired = '1';
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('.cat-btn');
+    if (!b) return;
+    state.storeCat = b.dataset.cat;
+    wrap.querySelectorAll('.cat-btn').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    storeOffset = 0;
+    storeDone = false;
+    const grid = $('storeGrid');
+    if (grid) grid.innerHTML = '';
+    const msg = $('storeMore');
+    if (msg) { msg.style.display = 'block'; msg.textContent = 'Loading games...'; }
+    loadStoreBatch();
+  });
+}
+
+async function loadStoreBatch() {
+  if (storeDone || storeLoading) return;
+  storeLoading = true;
+  try {
+    const cat = state.storeCat || 'All';
+    const page = await launcherApi.getDatabaseGames('', storeOffset, STORE_BATCH, cat);
+    const items = Array.isArray(page?.items) ? page.items : [];
+    storeOffset += items.length;
+    if (items.length < STORE_BATCH || storeOffset >= STORE_CAP) storeDone = true;
+    const themes = new Set(state.storeThemes || []);
+    const seen = new Set(state.db.map((x) => String(x.id) + '::' + String(x.exe)));
+    for (const g of items) {
+      for (const t of (g.themes || [])) themes.add(t);
+      const key = String(g.id) + '::' + String(g.exe);
+      if (!seen.has(key)) { seen.add(key); state.db.push(g); }
+    }
+    state.storeThemes = Array.from(themes).sort();
+    renderStoreChips();
+    setupStoreCats();
+    const grid = $('storeGrid');
+    if (grid) {
+      for (const g of items) {
+        const card = document.createElement('div');
+        card.className = 'game-card';
+        card.dataset.id = g.id;
+        card.dataset.exe = g.exe;
+        card.innerHTML = storeGridCardHtml(g);
+        grid.appendChild(card);
+      }
+    }
+    const msg = $('storeMore');
+    if (msg) {
+      if (storeDone) msg.style.display = 'none';
+      else if (!items.length) { msg.textContent = 'No more games.'; msg.style.display = 'block'; }
+      else { msg.textContent = 'Loading more games...'; msg.style.display = 'block'; }
+    }
+  } catch (e) {
+    storeDone = true;
+    const msg = $('storeMore');
+    if (msg) { msg.textContent = 'Could not load more games.'; msg.style.display = 'block'; }
+  } finally {
+    storeLoading = false;
+  }
+}
+
+function renderStoreAllGames() {
+  storeOffset = 0;
+  storeDone = false;
+  const grid = $('storeGrid');
+  if (grid) grid.innerHTML = '';
+  const msg = $('storeMore');
+  if (msg) { msg.style.display = 'block'; msg.textContent = 'Loading games...'; }
+  renderStoreChips();
+  setupStoreCats();
+  loadStoreBatch();
+}
+
+function setupStoreScroll() {
+  const sentinel = $('storeMore');
+  if (!sentinel || sentinel.dataset.wired) return;
+  if (!('IntersectionObserver' in window)) {
+    window.addEventListener('scroll', () => {
+      if (!storeLoading && !storeDone && window.innerHeight + window.scrollY > document.body.scrollHeight - 600) loadStoreBatch();
+    });
+    return;
+  }
+  sentinel.dataset.wired = '1';
+  new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) loadStoreBatch();
+  }, { rootMargin: '700px' }).observe(sentinel);
+}
+
+function setupStoreGridActions() {
+  const grid = $('storeGrid');
+  if (!grid || grid.dataset.wired) return;
+  grid.dataset.wired = '1';
+  grid.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.game-add');
+    if (!btn) return;
+    const card = btn.closest('.game-card');
+    if (!card) return;
+    const g = state.db.find((x) => String(x.id) === String(card.dataset.id) && String(x.exe) === String(card.dataset.exe));
+    if (g) await addToLibrary(g);
+  });
+}
+
 (async function init() {
   await loadAppSettings();
   if (!appSettings.termsAccepted) {
@@ -1165,4 +1312,6 @@ function initAutoScrollbar() {
     renderLibrary();
   });
   initAutoScrollbar();
+  setupStoreScroll();
+  setupStoreGridActions();
 })();
