@@ -128,6 +128,19 @@
     </div>
   </div>
 
+  <div class="update-toast" id="updateToast" style="display:none;" role="alert">
+    <div class="toast-body">
+      <div class="toast-icon">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9L12 2zm7 11l1.2 3.2L23 17.4l-3.8 1.2L18 22l-1.2-3.4L13 17.4l3.8-1.2L19 13z"/></svg>
+      </div>
+      <div>
+        <div class="toast-title" id="toastTitle">New update arrived!</div>
+        <div class="toast-sub" id="toastSub">Click to see what's new</div>
+      </div>
+    </div>
+    <button class="toast-close" id="toastClose" aria-label="Dismiss">&times;</button>
+  </div>
+
   <div class="modal-overlay" id="aboutModal" style="display:none;">
     <div class="modal modal-wide">
       <div class="modal-title">About App</div>
@@ -194,7 +207,23 @@
         <h4 class="terms-h">8. Contact</h4>
         <p class="terms-p">Questions or feedback? Contact the developer through GitHub.</p>
       </div>
+      <div class="terms-agree" id="termsAgreeRow" style="display:none;">
+        <label class="terms-check">
+          <input type="checkbox" id="termsCheckbox">
+          <span>I agree to the Terms &amp; Conditions</span>
+        </label>
+        <button class="modal-btn" id="termsAgreeBtn" disabled>Confirm</button>
+      </div>
       <button class="modal-btn" id="termsClose">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="whatsNewModal" style="display:none;">
+    <div class="modal modal-wide">
+      <div class="modal-title">What's New</div>
+      <div class="modal-version">Version <span id="wnVersion">&hellip;</span> &bull; <span id="wnDate">&hellip;</span></div>
+      <ul class="modal-fixes" id="wnList"></ul>
+      <button class="modal-btn" id="wnClose">Got it</button>
     </div>
   </div>
 

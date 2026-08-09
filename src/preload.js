@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('launcherApi', {
   maximize: () => ipcRenderer.invoke('app/window/maximize'),
   close: () => ipcRenderer.invoke('app/window/close'),
   getAppInfo: () => ipcRenderer.invoke('app/getInfo'),
+  getWhatsNew: () => ipcRenderer.invoke('app/whatsnew'),
+  markWhatsNewSeen: () => ipcRenderer.invoke('app/whatsnew/markSeen'),
   checkForUpdates: () => ipcRenderer.invoke('app/update/check'),
   zoom: (dir) => ipcRenderer.invoke('app/zoom', dir),
   getSettings: () => ipcRenderer.invoke('app/settings/get'),

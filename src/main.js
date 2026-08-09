@@ -7,7 +7,7 @@ const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
 const DISCORD_DETECTABLE_URL = 'https://discord.com/api/applications/detectable';
-const UPDATE_REPO = 'samircloudnxt/ryze-game-launcher';
+const UPDATE_REPO = 'its-samir20/ryze-game-launcher';
 
 autoUpdater.autoDownload = false;
 autoUpdater.autoInstallOnAppQuit = false;
@@ -83,6 +83,13 @@ function compareVersions(a, b) {
   return 0;
 }
 
+function parseReleaseNotes(body) {
+  return String(body || '')
+    .split(/\r?\n/)
+    .map((s) => s.replace(/^[-*]\s*/, '').replace(/^#+\s*/, '').trim())
+    .filter(Boolean);
+}
+
 app.setPath('userData', path.join(app.getPath('appData'), 'ryze-game-launcher'));
 
 let databaseCache = { loaded: false, gameListPath: null, games: [] };
@@ -99,7 +106,9 @@ const DEFAULT_SETTINGS = {
   gamePath: '',
   closeOnLaunch: false,
   reopenOnExit: true,
-  trayOnClose: false
+  trayOnClose: false,
+  termsAccepted: false,
+  lastSeenVersion: ''
 };
 
 let settings = { ...DEFAULT_SETTINGS };
@@ -504,6 +513,11 @@ app.whenReady().then(async () => {
   }
   await createWindow();
   createTray();
+  setTimeout(() => {
+    if (app.isPackaged) {
+      autoUpdater.checkForUpdates().catch(() => {});
+    }
+  }, 3000);
   app.on('activate', async () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       await createWindow();
@@ -577,14 +591,42 @@ ipcMain.handle('app/getInfo', () => ({
   version: app.getVersion(),
   lastUpdate: 'August 9, 2026',
   fixes: [
-    'Runs in system tray - closing the window hides to tray, tray menu Quit fully exits',
-    'Fixed crash on close (tray icon now loads correctly)',
-    'New cyberpunk logo (app icon, installer and in-app)',
+    'Terms & Conditions gate on first launch (I agree + confirm)',
+    'Update notification popup right when a new update arrives',
+    'What\'s New popup after every update (point-by-point release notes)',
+    'In-app auto-update with download progress and Install & Restart',
+    'Auto-cleanup of old update cache files',
     'Fake game window for rich presence',
-    'Store with search, popular aliases and category filters',
-    'Built-in update checker'
+    'Store with search, popular aliases and category filters'
   ]
 }));
+
+ipcMain.handle('app/whatsnew', async () => {
+  const current = app.getVersion();
+  if (settings.lastSeenVersion === current) return { show: false };
+  let notes = [];
+  let published = '';
+  try {
+    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/tags/v${current}`, {
+      signal: AbortSignal.timeout(8000),
+      headers: { 'User-Agent': 'ryze-game-launcher' }
+    });
+    if (res.ok) {
+      const rel = await res.json();
+      notes = parseReleaseNotes(rel.body);
+      published = rel.published_at ? new Date(rel.published_at).toLocaleDateString() : '';
+    }
+  } catch {
+    // offline - show popup with generic message
+  }
+  return { show: true, version: current, notes, published };
+});
+
+ipcMain.handle('app/whatsnew/markSeen', () => {
+  settings.lastSeenVersion = app.getVersion();
+  saveSettings();
+  return true;
+});
 
 const DEV_DISCORD_ID = '924218650301456414';
 const DEV_DISCORD_AVATAR_FALLBACK = 'https://cdn.discordapp.com/avatars/924218650301456414/8e41cc1375823e4fcc61524cdc944b70?size=128';
@@ -622,10 +664,7 @@ ipcMain.handle('app/update/check', async () => {
       releaseFound = true;
       latest = String(rel.tag_name || '');
       url = (rel.assets || []).find((a) => /\.exe$/i.test(a.name))?.browser_download_url || '';
-      notes = String(rel.body || '')
-        .split(/\r?\n/)
-        .map((s) => s.replace(/^[-*]\s*/, '').trim())
-        .filter(Boolean);
+      notes = parseReleaseNotes(rel.body);
       published = rel.published_at ? new Date(rel.published_at).toLocaleDateString() : '';
     }
   } catch {

@@ -825,6 +825,48 @@ launcherApi.onUpdateError((err) => {
   $('updateDownload').textContent = 'Try Again';
 });
 
+function showUpdateToast(version) {
+  if ($('updateToast').style.display !== 'none') return;
+  if (version) $('toastTitle').textContent = `New update arrived! v${version}`;
+  $('updateToast').style.display = 'block';
+  setTimeout(() => { if ($('updateToast').style.display !== 'none') $('updateToast').style.display = 'none'; }, 30000);
+}
+
+launcherApi.onUpdateAvailable((info) => {
+  if (info && info.state === 'available') showUpdateToast(info.version);
+});
+
+$('updateToast').addEventListener('click', (e) => {
+  if (e.target.closest('#toastClose')) {
+    $('updateToast').style.display = 'none';
+    return;
+  }
+  $('updateToast').style.display = 'none';
+  openUpdateModal();
+});
+
+function showWhatsNewModal(w) {
+  return new Promise((resolve) => {
+    $('wnVersion').textContent = w.version || '...';
+    $('wnDate').textContent = w.published ? 'Updated ' + w.published : 'Just updated';
+    const list = $('wnList');
+    list.innerHTML = '';
+    const notes = (w.notes && w.notes.length)
+      ? w.notes
+      : ['Improved performance and stability', 'Bug fixes', 'New features and improvements'];
+    notes.forEach((n) => {
+      const li = document.createElement('li');
+      li.textContent = n;
+      list.appendChild(li);
+    });
+    $('whatsNewModal').style.display = 'flex';
+    $('wnClose').onclick = () => {
+      $('whatsNewModal').style.display = 'none';
+      resolve();
+    };
+  });
+}
+
 async function openAboutModal() {
   $('aboutModal').style.display = 'flex';
   try {
@@ -877,7 +919,7 @@ $('aboutDevModal').addEventListener('click', (e) => {
 });
 
 $('devGithub').addEventListener('click', () => {
-  launcherApi.openExternal('https://github.com/samircloudnxt');
+  launcherApi.openExternal('https://github.com/its-samir20');
 });
 
 $('devFacebook').addEventListener('click', () => {
@@ -889,7 +931,38 @@ $('devInstagram').addEventListener('click', () => {
 });
 
 async function openTermsModal() {
+  $('termsAgreeRow').style.display = 'none';
+  $('termsClose').style.display = 'block';
   $('termsModal').style.display = 'flex';
+}
+
+function showFirstRunTerms() {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      $('termsAgreeRow').style.display = 'none';
+      $('termsClose').style.display = 'block';
+      $('termsModal').style.display = 'none';
+      $('termsCheckbox').onchange = null;
+      $('termsAgreeBtn').onclick = null;
+      resolve();
+    };
+    $('termsAgreeRow').style.display = 'block';
+    $('termsClose').style.display = 'none';
+    $('termsCheckbox').checked = false;
+    $('termsAgreeBtn').disabled = true;
+    $('termsModal').style.display = 'flex';
+    $('termsCheckbox').onchange = () => {
+      $('termsAgreeBtn').disabled = !$('termsCheckbox').checked;
+    };
+    $('termsAgreeBtn').onclick = async () => {
+      if (!$('termsCheckbox').checked) return;
+      await saveSetting({ termsAccepted: true });
+      finish();
+    };
+  });
 }
 
 $('termsClose').addEventListener('click', () => {
@@ -897,7 +970,9 @@ $('termsClose').addEventListener('click', () => {
 });
 
 $('termsModal').addEventListener('click', (e) => {
-  if (e.target === $('termsModal')) $('termsModal').style.display = 'none';
+  if (e.target === $('termsModal') && $('termsAgreeRow').style.display !== 'block') {
+    $('termsModal').style.display = 'none';
+  }
 });
 
 let appSettings = {};
@@ -1071,6 +1146,18 @@ function initAutoScrollbar() {
 
 (async function init() {
   await loadAppSettings();
+  if (!appSettings.termsAccepted) {
+    await showFirstRunTerms();
+  }
+  try {
+    const wn = await launcherApi.getWhatsNew();
+    if (wn && wn.show) {
+      await showWhatsNewModal(wn);
+      await launcherApi.markWhatsNewSeen();
+    }
+  } catch {
+    // ignore whats-new failures
+  }
   await ensureDatabaseSynced();
   await refreshMyGames();
   loadDatabaseUntil(() => state.db.length >= 50).then(() => {
