@@ -1066,6 +1066,7 @@ ipcMain.handle('app/update/startDownload', async () => {
       await new Promise((r) => setTimeout(r, i * 1500));
     }
     try {
+      await autoUpdater.checkForUpdates();
       await autoUpdater.downloadUpdate();
       return { ok: true };
     } catch (err) {
