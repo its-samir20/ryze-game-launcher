@@ -1,5 +1,23 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+const updateStatusHandlers = {
+  available: null,
+  progress: null,
+  downloaded: null,
+  error: null
+};
+
+function subscribeUpdateStatus(key, states, handler) {
+  const list = Array.isArray(states) ? states : states == null ? null : [states];
+  const prev = updateStatusHandlers[key];
+  if (prev) ipcRenderer.removeListener('update/status', prev);
+  const wrapped = (e, payload) => {
+    if (payload && (list == null || list.includes(payload.state))) handler(payload);
+  };
+  updateStatusHandlers[key] = wrapped;
+  ipcRenderer.on('update/status', wrapped);
+}
+
 contextBridge.exposeInMainWorld('launcherApi', {
   minimize: () => ipcRenderer.invoke('app/window/minimize'),
   maximize: () => ipcRenderer.invoke('app/window/maximize'),
@@ -44,27 +62,15 @@ contextBridge.exposeInMainWorld('launcherApi', {
   remindUpdateLater: () => Promise.resolve({}),
   quitAndInstallUpdate: () => ipcRenderer.invoke('app/update/install'),
   onUpdateAvailable: (handler) => {
-    ipcRenderer.removeAllListeners('update/status');
-    ipcRenderer.on('update/status', (e, payload) => {
-      if (payload.state === 'available' || payload.state === 'not-available') handler(payload);
-    });
+    subscribeUpdateStatus('available', ['available', 'not-available'], handler);
   },
   onUpdateProgress: (handler) => {
-    ipcRenderer.removeAllListeners('update/progress');
-    ipcRenderer.on('update/status', (e, payload) => {
-      if (payload.state === 'downloading') handler(payload);
-    });
+    subscribeUpdateStatus('progress', 'downloading', handler);
   },
   onUpdateDownloaded: (handler) => {
-    ipcRenderer.removeAllListeners('update/downloaded');
-    ipcRenderer.on('update/status', (e, payload) => {
-      if (payload.state === 'downloaded') handler(payload);
-    });
+    subscribeUpdateStatus('downloaded', 'downloaded', handler);
   },
   onUpdateError: (handler) => {
-    ipcRenderer.removeAllListeners('update/error');
-    ipcRenderer.on('update/status', (e, payload) => {
-      if (payload.state === 'error') handler(payload);
-    });
+    subscribeUpdateStatus('error', 'error', handler);
   }
 });
