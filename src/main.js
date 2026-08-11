@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
+const net = require('net');
 const { spawn } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 
@@ -35,6 +36,32 @@ autoUpdater.on('update-downloaded', (info) => {
 autoUpdater.on('error', (err) => {
   sendUpdateStatus({ state: 'error', message: String(err && err.message ? err.message : err) });
 });
+
+async function fetchUpdateJson(url, attempts) {
+  const maxAttempts = Math.max(1, attempts || 3);
+  let lastErr = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, i * 1200));
+    try {
+      return await fetch(url, {
+        headers: { 'User-Agent': 'ryze-game-launcher' },
+        signal: AbortSignal.timeout(12000)
+      });
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error(`Fetch failed: ${url}`);
+}
+
+async function clearUpdaterPending() {
+  try {
+    const pending = path.join(app.getPath('localAppData'), 'ryze-game-launcher-updater', 'pending');
+    if (fs.existsSync(pending)) fs.rmSync(pending, { recursive: true, force: true });
+  } catch {
+    // ignore
+  }
+}
 
 function cleanUpdaterCache() {
   try {
@@ -139,8 +166,41 @@ function splitAtomEntries(text) {
 app.setPath('userData', path.join(app.getPath('appData'), 'ryze-game-launcher'));
 
 let databaseCache = { loaded: false, gameListPath: null, games: [] };
+const sortOrders = {};
+
+function buildOrderIndex(sort, games) {
+  const n = games.length;
+  const idx = Array.from({ length: n }, (_, i) => i);
+  if (sort === 'newest') {
+    idx.sort((a, b) => {
+      const diff = (BigInt(games[b].id || '0') - BigInt(games[a].id || '0'));
+      return diff > 0n ? 1 : diff < 0n ? -1 : 0;
+    });
+  } else if (sort === 'random') {
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const t = idx[i]; idx[i] = idx[j]; idx[j] = t;
+    }
+  } else {
+    idx.sort((a, b) => games[a].name.localeCompare(games[b].name));
+  }
+  return idx;
+}
+
+function getOrderedGames(sort) {
+  const games = databaseCache.games;
+  const key = sort === 'newest' ? 'newest' : sort === 'random' ? 'random' : 'az';
+  if (!sortOrders[key]) {
+    sortOrders[key] = buildOrderIndex(key, games);
+  }
+  return sortOrders[key];
+}
 let mainWindow = null;
 let runningProc = null;
+let rpcProc = null;
+let playtimeData = {};
+let playSessionStart = null;
+let playSessionKey = null;
 let tray = null;
 let isQuitting = false;
 
@@ -183,6 +243,34 @@ function saveSettings() {
   }
 }
 
+function playtimeFilePath() {
+  return path.join(app.getPath('userData'), 'playtime.json');
+}
+
+function loadPlaytimeData() {
+  try {
+    if (fs.existsSync(playtimeFilePath())) {
+      const parsed = JSON.parse(fs.readFileSync(playtimeFilePath(), 'utf8'));
+      playtimeData = (parsed && typeof parsed === 'object') ? parsed : {};
+    }
+  } catch {
+    playtimeData = {};
+  }
+}
+
+function savePlaytimeData() {
+  try {
+    ensureDirSync(app.getPath('userData'));
+    fs.writeFileSync(playtimeFilePath(), JSON.stringify(playtimeData, null, 2));
+  } catch {
+    // ignore
+  }
+}
+
+function playtimeKey(g) {
+  return String((g && (g.appId || g.id)) || '') + '::' + String((g && g.exe) || '');
+}
+
 function ensureDirSync(dirPath) {
   if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
@@ -223,11 +311,15 @@ function normalizeExeRelPath(exeName) {
 
 function pickBestExecutable(appEntry) {
   const exes = Array.isArray(appEntry.executables) ? appEntry.executables : [];
+  const isWinOs = (e) => {
+    const v = String(e?.os || '').toLowerCase();
+    return !v || v === 'win32' || v === 'win' || v === 'windows';
+  };
   const nonLauncherWin32 = exes.find(e =>
-    String(e?.os || '').toLowerCase() === 'win32' && !e?.is_launcher && e?.name);
+    isWinOs(e) && !e?.is_launcher && e?.name);
   if (nonLauncherWin32) return nonLauncherWin32;
   const anyWin32 = exes.find(e =>
-    String(e?.os || '').toLowerCase() === 'win32' && e?.name);
+    isWinOs(e) && e?.name);
   return anyWin32 || null;
 }
 
@@ -364,42 +456,117 @@ const GAME_ALIASES = {
   'brawlhalla': ['brawlhalla'],
   'osu': ['osu'],
   'dying light': ['dying light'],
-  'far cry 5': ['far cry 5']
+  'far cry 5': ['far cry 5'],
+  'ragnarok': ['ragnarok'],
+  'palworld': ['palworld'],
+  'helldivers': ['helldivers 2'],
+  'helldivers 2': ['helldivers 2'],
+  'baldur': ['baldur'],
+  'dragon age': ['dragon age'],
+  'mass effect': ['mass effect'],
+  'fallout': ['fallout'],
+  'half life': ['half life'],
+  'hl': ['half life'],
+  'tf2': ['team fortress'],
+  'path of exile': ['path of exile'],
+  'poe': ['path of exile'],
+  'stray': ['stray'],
+  'it takes two': ['it takes two'],
+  'outlast': ['outlast'],
+  'left4dead': ['left 4 dead'],
+  'dayz': ['dayz'],
+  'gta online': ['grand theft auto online'],
+  'rdr online': ['red dead online'],
+  'red dead online': ['red dead online'],
+  'new world': ['new world'],
+  'marvel rivals': ['marvel rivals'],
+  'delta force': ['delta force'],
+  'war thunder': ['war thunder'],
+  'warframe': ['warframe'],
+  'destiny 2': ['destiny 2'],
+  'destiny2': ['destiny 2'],
+  'guardians': ['destiny 2']
 };
 
-function gameNameMatchesTerm(game, term) {
-  if (game._nameLower.includes(term)) return true;
-  const aliases = GAME_ALIASES[term];
-  if (!aliases) return false;
-  for (const a of aliases) {
-    if (game._nameLower.includes(a)) return true;
+const SEARCH_STOP_WORDS = new Set(['of', 'the', 'a', 'an', 'and', 'or', 'in', 'on', 'to', 'for', 'with', 'at', 'by', 'vs', 'v', '&', 'edition', 'remaster', 'remastered', 'remake', 'hd', 'deluxe', 'ultimate', 'definitive', 'collection', 'game', 'games']);
+
+function gameSearchScore(g, term) {
+  const raw = g._nameLower;
+  if (raw.includes(term)) {
+    if (raw === term) return 100;
+    if (raw.startsWith(term)) return 82;
+    return 60;
   }
-  return false;
+  const aliases = GAME_ALIASES[term];
+  if (aliases) {
+    for (const a of aliases) {
+      if (raw === a) return 92;
+      if (raw.startsWith(a)) return 74;
+      if (raw.includes(a)) return 54;
+    }
+  }
+  const words = term.split(/[^a-z0-9]+/).filter(w => w.length > 1 && !SEARCH_STOP_WORDS.has(w));
+  if (!words.length) return null;
+  let matched = 0;
+  for (const w of words) {
+    if (raw.includes(w)) { matched++; continue; }
+    const wa = GAME_ALIASES[w];
+    if (wa && wa.some(a => raw.includes(a))) matched++;
+  }
+  if (!matched) return null;
+  return matched === words.length ? 42 : 20;
 }
 
-function pageDatabaseGames({ filter, offset, limit, category }) {
+function toStoreGame(g) {
+  return {
+    id: g.id,
+    name: g.name,
+    exe: g.exe,
+    icon: g.icon || '',
+    isLauncher: g.isLauncher,
+    usesNewDetection: g.usesNewDetection,
+    themes: Array.isArray(g.themes) ? g.themes : []
+  };
+}
+
+function pageDatabaseGames({ filter, offset, limit, category, sort }) {
   const term = String(filter || '').trim().toLowerCase();
   const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
   const pageSize = Number.isFinite(limit) ? Math.min(500, Math.max(1, limit)) : 200;
+  const games = databaseCache.games;
+  const cat = String(category || 'All');
+  const order = getOrderedGames(sort);
+  const seenNames = new Set();
+  if (term) {
+    const matches = [];
+    for (let k = 0; k < order.length; k++) {
+      const g = games[order[k]];
+      if (cat !== 'All' && !(g.themes || []).includes(cat)) continue;
+      const lower = String(g.name).toLowerCase();
+      if (seenNames.has(lower)) continue;
+      seenNames.add(lower);
+      const score = gameSearchScore(g, term);
+      if (score == null) continue;
+      matches.push({ score, g });
+    }
+    matches.sort((a, b) => (b.score - a.score) || a.g.name.localeCompare(b.g.name));
+    const items = [];
+    for (let k = start; k < matches.length && items.length < pageSize; k++) {
+      items.push(toStoreGame(matches[k].g));
+    }
+    return { items, offset: start, limit: pageSize, hasMore: start + items.length < matches.length };
+  }
   const items = [];
   let matchIndex = 0;
   let hasMore = false;
-  const games = databaseCache.games;
-  const cat = String(category || 'All');
-  for (let i = 0; i < games.length; i++) {
-    const g = games[i];
+  for (let k = 0; k < order.length; k++) {
+    const g = games[order[k]];
     if (cat !== 'All' && !(g.themes || []).includes(cat)) continue;
-    if (term && !gameNameMatchesTerm(g, term)) continue;
+    const lower = String(g.name).toLowerCase();
+    if (seenNames.has(lower)) continue;
+    seenNames.add(lower);
     if (matchIndex >= start && items.length < pageSize) {
-      items.push({
-        id: g.id,
-        name: g.name,
-        exe: g.exe,
-        icon: g.icon || '',
-        isLauncher: g.isLauncher,
-        usesNewDetection: g.usesNewDetection,
-        themes: Array.isArray(g.themes) ? g.themes : []
-      });
+      items.push(toStoreGame(g));
     }
     matchIndex++;
     if (items.length >= pageSize && matchIndex > start + pageSize) {
@@ -462,6 +629,9 @@ async function findDummyGameTemplate() {
 }
 
 async function ensureFakeExeForGame(game, paths) {
+  if (game && game.custom && typeof game.exe === 'string' && fs.existsSync(game.exe)) {
+    return { destExePath: game.exe, workingDirectory: path.dirname(game.exe) };
+  }
   const dummySourceExe = await findDummyGameTemplate();
   if (!dummySourceExe) {
     throw new Error('Could not find DummyGame.exe. Set DUMMYGAME_EXE env var to its path.');
@@ -509,6 +679,114 @@ async function ensureFakeExeForGame(game, paths) {
   return { destExePath, workingDirectory: path.dirname(destExePath) };
 }
 
+// ---- Discord Rich Presence (local IPC pipe) ----
+const DISCORD_IPC_PIPE = '\\\\.\\pipe\\discord-ipc-0';
+let rpcSocket = null;
+let rpcTimer = null;
+let rpcAttempts = 0;
+let rpcTarget = null;
+
+function buildRpcFrame(opcode, payload) {
+  const body = Buffer.from(JSON.stringify(payload), 'utf8');
+  const header = Buffer.alloc(8);
+  header.writeUInt32LE(opcode, 0);
+  header.writeUInt32LE(body.length, 4);
+  return Buffer.concat([header, body]);
+}
+
+function destroyRpcSocket() {
+  if (rpcTimer) {
+    clearTimeout(rpcTimer);
+    rpcTimer = null;
+  }
+  if (rpcSocket) {
+    try { rpcSocket.destroy(); } catch { /* ignore */ }
+    rpcSocket = null;
+  }
+}
+
+function clearDiscordRichPresence() {
+  destroyRpcSocket();
+  rpcAttempts = 0;
+  rpcTarget = null;
+}
+
+function trySetDiscordRichPresence() {
+  const target = rpcTarget;
+  if (!target) return;
+  destroyRpcSocket();
+  const socket = net.connect({ path: DISCORD_IPC_PIPE });
+  rpcSocket = socket;
+  let buf = Buffer.alloc(0);
+  let settled = false;
+
+  const fail = () => {
+    if (settled) return;
+    settled = true;
+    destroyRpcSocket();
+    rpcAttempts++;
+    if (rpcAttempts < 2 && rpcTarget === target) {
+      rpcTimer = setTimeout(() => {
+        if (rpcTarget === target) trySetDiscordRichPresence();
+      }, 6000);
+    }
+  };
+  const succeed = () => {
+    if (settled) return;
+    settled = true;
+    try {
+      socket.write(buildRpcFrame(1, {
+        cmd: 'SET_ACTIVITY',
+        args: {
+          pid: process.pid,
+          activity: {
+            state: 'In game',
+            details: String(target.displayName || ''),
+            timestamps: { start: Date.now() }
+          }
+        },
+        nonce: String(Date.now())
+      }));
+    } catch {
+      fail();
+      return;
+    }
+  };
+
+  rpcTimer = setTimeout(fail, 4000);
+  socket.on('connect', () => {
+    try { socket.write(buildRpcFrame(0, { v: 1, client_id: target.clientId })); } catch { /* ignore */ }
+  });
+  socket.on('data', (chunk) => {
+    buf = Buffer.concat([buf, chunk]);
+    while (buf.length >= 8) {
+      const opcode = buf.readUInt32LE(0);
+      const len = buf.readUInt32LE(4);
+      if (buf.length < 8 + len) break;
+      let payload = null;
+      try { payload = JSON.parse(buf.slice(8, 8 + len).toString('utf8')); } catch { /* ignore */ }
+      buf = buf.slice(8 + len);
+      if (opcode === 1 && payload && payload.evt === 'READY') {
+        succeed();
+        break;
+      }
+    }
+  });
+  socket.on('error', fail);
+  socket.on('close', () => {
+    if (rpcSocket === socket) rpcSocket = null;
+    if (!settled) fail();
+  });
+}
+
+function setDiscordRichPresence(clientId, displayName) {
+  const id = String(clientId || '').trim();
+  if (!id || process.platform !== 'win32') return;
+  clearDiscordRichPresence();
+  rpcTarget = { clientId: id, displayName: String(displayName || '') };
+  trySetDiscordRichPresence();
+}
+
 function createTray() {
   if (tray) return;
   tray = new Tray(path.join(__dirname, '..', 'resources', 'tray-icon.png'));
@@ -553,10 +831,12 @@ async function createWindow() {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  clearDiscordRichPresence();
 });
 
 app.whenReady().then(async () => {
   loadSettings();
+  loadPlaytimeData();
   cleanUpdaterCache();
   if (settings.startup) {
     app.setLoginItemSettings({ openAtLogin: true });
@@ -580,7 +860,8 @@ app.on('window-all-closed', () => {
 });
 
 ipcMain.handle('app/window/minimize', () => {
-  mainWindow?.minimize();
+  mainWindow?.hide();
+  createTray();
 });
 
 ipcMain.handle('app/window/maximize', () => {
@@ -633,21 +914,49 @@ ipcMain.handle('app/folder/select', async () => {
   return res.filePaths[0];
 });
 
+ipcMain.handle('app/file/select', async () => {
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Select game executable',
+    properties: ['openFile'],
+    filters: [{ name: 'Programs', extensions: ['exe'] }]
+  });
+  if (res.canceled || !res.filePaths.length) return null;
+  return res.filePaths[0];
+});
+
 ipcMain.handle('app/openExternal', (_e, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
 });
 
+ipcMain.handle('app/openDataFolder', async () => {
+  await shell.openPath(app.getPath('userData'));
+});
+
+ipcMain.handle('app/openGitHub', async () => {
+  await shell.openExternal('https://github.com/its-samir20/ryze-game-launcher');
+});
+
+ipcMain.handle('app/restart', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 ipcMain.handle('app/getInfo', () => ({
   version: app.getVersion(),
-  lastUpdate: 'August 9, 2026',
+  lastUpdate: 'August 11, 2026',
   fixes: [
-    'Terms & Conditions gate on first launch (I agree + confirm)',
-    'Update notification popup right when a new update arrives',
-    'What\'s New popup after every update (point-by-point release notes)',
-    'In-app auto-update with download progress and Install & Restart',
-    'Auto-cleanup of old update cache files',
-    'Fake game window for rich presence',
-    'Store with search, popular aliases and category filters'
+    'Terms & Conditions gate on first launch',
+    'Update notification popup with What\'s New notes',
+    'In-app auto-update with retry and stuck-download warning',
+    'Game detail popup with cover art, themes and Steam/Web links',
+    'Add your own games with a custom .exe',
+    'Library backup: export and import',
+    'Store sorting (A-Z / Newest / Random) and Surprise Me',
+    'Smarter search with aliases and duplicate-free browsing',
+    'Playtime tracking and Recently Played sorting',
+    'Keyboard shortcuts (Ctrl+F, Ctrl+Enter, Esc)',
+    'Minimize to system tray'
   ]
 }));
 
@@ -710,10 +1019,7 @@ ipcMain.handle('app/update/check', async () => {
   let notes = [];
   let published = '';
   try {
-    const ymlRes = await fetch(`${UPDATE_DOWNLOAD_BASE}/latest.yml`, {
-      signal: AbortSignal.timeout(10000),
-      headers: { 'User-Agent': 'ryze-game-launcher' }
-    });
+    const ymlRes = await fetchUpdateJson(`${UPDATE_DOWNLOAD_BASE}/latest.yml`, 3);
     reachable = ymlRes.ok;
     if (ymlRes.ok) {
       const info = parseLatestYml(await ymlRes.text());
@@ -722,14 +1028,11 @@ ipcMain.handle('app/update/check', async () => {
       url = info.path ? `${UPDATE_DOWNLOAD_BASE}/${info.path}` : '';
     }
   } catch {
-    // offline or unreachable
+    // offline or unreachable after retries
   }
   if (latest) {
     try {
-      const atomRes = await fetch(UPDATE_ATOM_URL, {
-        signal: AbortSignal.timeout(10000),
-        headers: { 'User-Agent': 'ryze-game-launcher' }
-      });
+      const atomRes = await fetchUpdateJson(UPDATE_ATOM_URL, 2);
       if (atomRes.ok) {
         const first = splitAtomEntries(await atomRes.text())[0];
         if (first) {
@@ -755,12 +1058,21 @@ ipcMain.handle('app/update/check', async () => {
 });
 
 ipcMain.handle('app/update/startDownload', async () => {
-  try {
-    await autoUpdater.downloadUpdate();
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err && err.message ? err.message : err) };
+  const maxAttempts = 3;
+  let lastErr = null;
+  for (let i = 0; i < maxAttempts; i++) {
+    if (i > 0) {
+      await clearUpdaterPending();
+      await new Promise((r) => setTimeout(r, i * 1500));
+    }
+    try {
+      await autoUpdater.downloadUpdate();
+      return { ok: true };
+    } catch (err) {
+      lastErr = err;
+    }
   }
+  return { ok: false, error: String(lastErr && lastErr.message ? lastErr.message : lastErr) };
 });
 
 ipcMain.handle('app/update/install', async () => {
@@ -780,13 +1092,15 @@ ipcMain.handle('launcher/syncGameList', async () => {
   return { ...result, gameListPath: paths.gameListPath };
 });
 
-ipcMain.handle('launcher/getDatabaseGames', async (_evt, { filter, offset, limit, category } = {}) => {
+ipcMain.handle('launcher/getDatabaseGames', async (_evt, { filter, offset, limit, category, sort } = {}) => {
   const paths = getUserDataPaths();
   if (!databaseCache.loaded || databaseCache.gameListPath !== paths.gameListPath) {
     await loadDatabaseCache(paths.gameListPath);
   }
-  return pageDatabaseGames({ filter, offset, limit, category });
+  return pageDatabaseGames({ filter, offset, limit, category, sort });
 });
+
+ipcMain.handle('launcher/getPlaytimes', () => ({ ...playtimeData }));
 
 ipcMain.handle('launcher/getMyGames', async () => {
   const paths = getUserDataPaths();
@@ -825,6 +1139,33 @@ ipcMain.handle('launcher/addGame', async (_evt, game) => {
   return entry;
 });
 
+ipcMain.handle('launcher/addCustomGame', async (_evt, { name, exePath } = {}) => {
+  const paths = getUserDataPaths();
+  ensureDirSync(paths.userData);
+  const cleanName = String(name || '').trim().replace(/[<>:"/\\|?*]/g, '').slice(0, 120) || 'Custom Game';
+  const cleanExe = String(exePath || '').trim();
+  if (!/\.exe$/i.test(cleanExe) || !fs.existsSync(cleanExe)) {
+    return { ok: false, error: 'Please choose a valid .exe file.' };
+  }
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const safeList = Array.isArray(myGames) ? myGames : [];
+  const entry = {
+    appId: 'custom',
+    name: cleanName,
+    exe: cleanExe,
+    icon: '',
+    isFavorite: false,
+    custom: true,
+    usesNewDetection: false
+  };
+  const existed = safeList.find(g => g && g.custom && String(g.name).toLowerCase() === cleanName.toLowerCase() && String(g.exe).toLowerCase() === cleanExe.toLowerCase());
+  if (!existed) {
+    safeList.push(entry);
+    await writeJson(paths.myGamesPath, safeList);
+  }
+  return { ok: true, entry: existed || entry, existed: !!existed };
+});
+
 ipcMain.handle('launcher/toggleFavorite', async (_evt, { appId, exe }) => {
   const paths = getUserDataPaths();
   const myGames = await readJsonIfExists(paths.myGamesPath, []);
@@ -854,6 +1195,56 @@ ipcMain.handle('launcher/deleteGame', async (_evt, { appId, exe }) => {
     await writeJson(paths.myGamesPath, filtered);
   }
   return { ok: true, removed: before - filtered.length };
+});
+
+ipcMain.handle('launcher/backup/export', async () => {
+  const paths = getUserDataPaths();
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const stamp = new Date().toISOString().slice(0, 10);
+  const res = await dialog.showSaveDialog(win, {
+    title: 'Export library backup',
+    defaultPath: `ryze-backup-${stamp}.json`,
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true };
+  const myGames = await readJsonIfExists(paths.myGamesPath, []);
+  const data = {
+    app: 'ryze-game-launcher',
+    version: app.getVersion(),
+    exportedAt: new Date().toISOString(),
+    myGames: Array.isArray(myGames) ? myGames : [],
+    settings: { ...settings }
+  };
+  await fsp.writeFile(res.filePath, JSON.stringify(data, null, 2), 'utf8');
+  return { ok: true, path: res.filePath, count: data.myGames.length };
+});
+
+ipcMain.handle('launcher/backup/import', async () => {
+  const paths = getUserDataPaths();
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  const res = await dialog.showOpenDialog(win, {
+    title: 'Import library backup',
+    properties: ['openFile'],
+    filters: [{ name: 'JSON', extensions: ['json'] }]
+  });
+  if (res.canceled || !res.filePaths.length) return { ok: false, canceled: true };
+  let data;
+  try {
+    data = JSON.parse(await fsp.readFile(res.filePaths[0], 'utf8'));
+  } catch {
+    return { ok: false, error: 'Not a valid JSON file.' };
+  }
+  const games = Array.isArray(data && data.myGames) ? data.myGames : [];
+  ensureDirSync(paths.userData);
+  if (games.length) {
+    await writeJson(paths.myGamesPath, games);
+  }
+  if (data && data.settings && typeof data.settings === 'object') {
+    settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+    saveSettings();
+    if (settings.startup) app.setLoginItemSettings({ openAtLogin: true });
+  }
+  return { ok: true, count: games.length, path: res.filePaths[0] };
 });
 
 ipcMain.handle('launcher/createShortcut', async (_evt, { appId, exe }) => {
@@ -911,15 +1302,52 @@ ipcMain.handle('launcher/launchGame', async (_evt, game) => {
   ensureDirSync(paths.userData);
   const { destExePath, workingDirectory } = await ensureFakeExeForGame(game, paths);
   const displayName = String(game?.name || path.basename(destExePath));
+  const isCustom = Boolean(game?.custom);
 
-  runningProc = spawn(destExePath, [displayName, settings.theme || 'black'], {
+  runningProc = spawn(destExePath, isCustom ? [] : [displayName, settings.theme || 'black'], {
     cwd: workingDirectory,
     windowsHide: false,
     stdio: 'ignore'
   });
 
+  if (isCustom && !rpcProc) {
+    const dummy = await findDummyGameTemplate();
+    if (dummy) {
+      rpcProc = spawn(dummy, [displayName, settings.theme || 'black'], {
+        cwd: workingDirectory,
+        windowsHide: false,
+        stdio: 'ignore'
+      });
+    }
+  }
+
+  if (game && game.usesNewDetection) {
+    setDiscordRichPresence(game.appId || game.id, displayName);
+  }
+
+  playSessionKey = playtimeKey(game);
+  playSessionStart = Date.now();
+
   runningProc.once('exit', () => {
+    if (playSessionStart != null && playSessionKey) {
+      const secs = Math.round((Date.now() - playSessionStart) / 1000);
+      if (secs > 0) {
+        const entry = playtimeData[playSessionKey] || { appId: String((game && game.appId) || ''), exe: String((game && game.exe) || ''), name: displayName, seconds: 0, lastPlayed: 0 };
+        entry.seconds = (entry.seconds || 0) + secs;
+        entry.lastPlayed = Date.now();
+        if (displayName) entry.name = displayName;
+        playtimeData[playSessionKey] = entry;
+        savePlaytimeData();
+      }
+      playSessionStart = null;
+      playSessionKey = null;
+    }
     runningProc = null;
+    clearDiscordRichPresence();
+    if (rpcProc) {
+      try { rpcProc.kill(); } catch { /* ignore */ }
+      rpcProc = null;
+    }
     if (settings.reopenOnExit && mainWindow && !mainWindow.isVisible()) {
       mainWindow.show();
     }
@@ -939,5 +1367,10 @@ ipcMain.handle('launcher/stopGame', async () => {
     // ignore
   }
   runningProc = null;
+  clearDiscordRichPresence();
+  if (rpcProc) {
+    try { rpcProc.kill(); } catch { /* ignore */ }
+    rpcProc = null;
+  }
   return { ok: true };
 });

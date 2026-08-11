@@ -55,6 +55,14 @@
       <div class="store-all">
         <div class="store-all-head">
           <div class="store-all-title">Browse All Games</div>
+          <div class="store-all-controls">
+            <button class="surprise-btn" id="surpriseBtn">Surprise Me</button>
+            <select class="store-sort" id="storeSort">
+              <option value="az">A-Z</option>
+              <option value="newest">Newest</option>
+              <option value="random">Random</option>
+            </select>
+          </div>
         </div>
         <div class="store-cats" id="storeCats"></div>
         <div class="store-grid" id="storeGrid"></div>
@@ -67,9 +75,19 @@
         <div class="rail">
           <div class="rail-head">
             <div class="rail-title">GAMES</div>
-            <div class="rail-count" id="libraryCount">0</div>
+            <div class="rail-actions">
+              <button class="rail-add" id="addCustomBtn">+ Custom</button>
+              <div class="rail-count" id="libraryCount">0</div>
+            </div>
           </div>
           <input type="text" class="rail-search" id="librarySearch" placeholder="Search your library&hellip;" />
+          <div class="rail-sort-row">
+            <select class="rail-sort" id="libSort">
+              <option value="name">Sort: A-Z</option>
+              <option value="recent">Sort: Recently Played</option>
+              <option value="played">Sort: Most Played</option>
+            </select>
+          </div>
           <div class="rail-list" id="libraryList"></div>
         </div>
 
@@ -98,7 +116,9 @@
               <div class="status-pill" id="detailStatus">&#9679;  Ready</div>
             </div>
             <div class="detail-sub" id="detailSub"></div>
+            <div class="detail-play" id="detailPlay"></div>
             <div class="detail-note" id="detailNote" style="display:none;"></div>
+            <div class="detail-themes" id="detailThemes"></div>
 
             <button class="btn launch-btn" id="launchBtn">&#9656;  Launch Game</button>
 
@@ -134,6 +154,59 @@
         <button class="modal-btn" id="updateDownload" style="display:none;">Download Update</button>
         <button class="modal-btn" id="updateRefresh" style="display:none;">Refresh</button>
         <button class="modal-btn" id="modalClose">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="gameModal" style="display:none;">
+    <div class="modal modal-wide game-modal">
+      <div class="modal-title">Game Details</div>
+      <div class="gm-head">
+        <div class="gm-art">
+          <div class="gm-art-ph" id="gmArtPh">?</div>
+          <img class="gm-art-img" id="gmArtImg" alt="">
+        </div>
+        <div class="gm-info">
+          <div class="gm-name" id="gmName"></div>
+          <div class="gm-sub" id="gmExe"></div>
+          <div class="gm-sub" id="gmAppId"></div>
+          <div class="gm-note" id="gmNote" style="display:none;"></div>
+          <div class="gm-themes" id="gmThemes"></div>
+        </div>
+      </div>
+      <div class="gm-actions">
+        <button class="modal-btn gm-primary" id="gmAdd">Add to Library</button>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn gm-secondary" id="gmSteam">Search on Steam</button>
+        <button class="modal-btn gm-secondary" id="gmGoogle">Search on Web</button>
+      </div>
+      <div class="gm-actions">
+        <button class="modal-btn gm-ok" id="gmClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="customModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-title">Add Custom Game</div>
+      <div class="cg-desc">Pick any .exe on your PC. Launching it opens your game plus a RYZE playing window with a session timer.</div>
+      <div class="cg-field">
+        <label class="cg-label" for="cgName">Game name</label>
+        <input class="cg-input" id="cgName" type="text" placeholder="e.g. My Custom Game" />
+      </div>
+      <div class="cg-field">
+        <label class="cg-label" for="cgPath">Executable (.exe)</label>
+        <div class="cg-path">
+          <input class="cg-input" id="cgPath" type="text" placeholder="C:\\Games\\mygame.exe" readonly />
+          <button class="cg-browse" id="cgBrowse">Browse</button>
+        </div>
+      </div>
+      <div class="gm-actions">
+        <button class="modal-btn gm-primary" id="cgAdd">Add to Library</button>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn gm-ok" id="cgCancel">Cancel</button>
       </div>
     </div>
   </div>
@@ -346,6 +419,24 @@
         </div>
 
         <div class="set-group">
+          <div class="set-head">Library Backup</div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Export library</div>
+              <div class="set-desc">Save your library and favorites to a .json file</div>
+            </div>
+            <button class="set-browse" id="backupExport">Export</button>
+          </div>
+          <div class="set-row">
+            <div class="set-info">
+              <div class="set-name">Import library</div>
+              <div class="set-desc">Restore your library from a backup file</div>
+            </div>
+            <button class="set-browse" id="backupImport">Import</button>
+          </div>
+        </div>
+
+        <div class="set-group">
           <div class="set-head">About Us</div>
           <div class="set-row">
             <div class="set-info">
@@ -374,6 +465,28 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="whatsNewModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-title">What's New</div>
+      <div class="about-meta">Version <span id="wnVersion">&hellip;</span></div>
+      <div class="about-meta" id="wnDate"></div>
+      <ul class="about-facts" id="wnList"></ul>
+      <button class="modal-btn" id="wnClose">OK</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="shortcutsModal" style="display:none;">
+    <div class="modal">
+      <div class="modal-title">Keyboard Shortcuts</div>
+      <ul class="about-facts">
+        <li><b>Ctrl+F</b> &mdash; focus Store or Library search</li>
+        <li><b>Ctrl+Enter</b> &mdash; launch the selected game</li>
+        <li><b>Esc</b> &mdash; close menus and popups</li>
+      </ul>
+      <button class="modal-btn" id="shortcutsClose">OK</button>
+    </div>
+  </div>
+
   <div class="context-menu" id="contextMenu" style="display:none;"></div>
 
   <div class="hamburger-menu" id="hamburgerMenu" style="display:none;">
@@ -393,7 +506,18 @@
       </div>
     </div>
     <div class="ham-item" data-action="settings">Settings</div>
+    <div class="ham-item has-sub" data-action="backup">Library Backup <span class="ham-chev">&#8250;</span>
+      <div class="ham-submenu">
+        <div class="ham-item" data-action="backup-export">Export Backup</div>
+        <div class="ham-item" data-action="backup-import">Import Backup</div>
+      </div>
+    </div>
+    <div class="ham-item" data-action="data-folder">Open Data Folder</div>
+    <div class="ham-item" data-action="github">Open GitHub</div>
+    <div class="ham-item" data-action="restart">Restart App</div>
     <div class="ham-item" data-action="update">Check for Updates</div>
+    <div class="ham-item" data-action="whatsnew">What's New</div>
+    <div class="ham-item" data-action="shortcuts">Keyboard Shortcuts</div>
     <div class="ham-item has-sub" data-action="help">Help <span class="ham-chev">&#8250;</span>
       <div class="ham-submenu">
         <div class="ham-item" data-action="support">Support</div>

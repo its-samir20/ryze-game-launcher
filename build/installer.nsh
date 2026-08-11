@@ -24,6 +24,16 @@ Function ShowGuidePage
   nsDialogs::Show
 FunctionEnd
 
+!macro customUnInstall
+  Delete "$DESKTOP\RYZE Game Launcher.lnk"
+  Delete "$SMPROGRAMS\RYZE Game Launcher\RYZE Game Launcher.lnk"
+  Delete "$SMPROGRAMS\RYZE Game Launcher\Uninstall RYZE Game Launcher.lnk"
+  RMDir /r "$LOCALAPPDATA\ryze-game-launcher-updater"
+  RMDir /r "$APPDATA\ryze-game-launcher"
+  RMDir /r "$APPDATA\RYZE Game Launcher"
+  RMDir "$SMPROGRAMS\RYZE Game Launcher"
+!macroend
+
 !macro customInstall
   ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Installed"
   ${If} $0 != 1

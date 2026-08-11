@@ -23,7 +23,10 @@ const state = {
   storeFilter: '',
   currentTab: 'store',
   storeSearch: '',
-  libSearch: ''
+  libSearch: '',
+  storeSort: 'az',
+  libSort: 'name',
+  playtimes: {}
 };
 
 let contextMenuEl = null;
@@ -63,6 +66,39 @@ function switchTab(name) {
 function isInLibrary(g) {
   return state.myGames.some(mg =>
     String(mg.appId) === String(g.id) && String(mg.exe) === String(g.exe));
+}
+
+function appIdLabel(g) {
+  if (g && g.custom) return 'Custom Game';
+  return 'App ID ' + String(g?.appId || '—');
+}
+
+function ptKey(g) {
+  return String((g && (g.appId || g.id)) || '') + '::' + String((g && g.exe) || '');
+}
+
+function getPlaytimeEntry(g) {
+  return state.playtimes[ptKey(g)] || null;
+}
+
+function fmtTime(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return h + 'h ' + m + 'm';
+  if (m > 0) return m + 'm';
+  return s + 's';
+}
+
+function timeAgo(ts) {
+  const diff = Math.max(0, Date.now() - (Number(ts) || 0));
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return min + 'm ago';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h + 'h ago';
+  const d = Math.floor(h / 24);
+  return d + 'd ago';
 }
 
 function getRecentlyPlayed() {
@@ -218,7 +254,7 @@ async function renderStore() {
   if (term) {
     const results = (await searchDatabase(term)).filter(g => !isInLibrary(g));
     status.textContent = `Search results for '${term}' (${results.length} found)`;
-    cards = results.slice(0, 6).map(g => ({ tag: 'Search', game: g }));
+    cards = results.slice(0, 12).map(g => ({ tag: 'Search', game: g }));
   } else {
     if (!state.db.length) {
       status.textContent = 'Game database loading…';
@@ -230,7 +266,9 @@ async function renderStore() {
   }
 
   cardsEl.innerHTML = '';
-  for (let i = 0; i < 6; i++) {
+  cardsEl.style.display = term ? 'none' : '';
+  const maxCards = term ? 12 : 6;
+  for (let i = 0; i < maxCards; i++) {
     const item = cards[i];
     if (!item) {
       const empty = document.createElement('div');
@@ -243,7 +281,7 @@ async function renderStore() {
     const card = document.createElement('div');
     card.className = 'card';
     let sub = g.exe;
-    if (g.usesNewDetection) sub += '   ·   new detection';
+    if (g.usesNewDetection) sub += '   ·   new detection (RPC status)';
     const logo = gameIcon(g)
       ? `<img class="card-img" src="${esc(gameIcon(g))}" alt="" onerror="this.remove()">`
       : `<div class="card-img card-img-ph">${esc((g.name || '?').charAt(0).toUpperCase())}</div>`;
@@ -260,6 +298,7 @@ async function renderStore() {
       e.stopPropagation();
       await addToLibrary(g);
     });
+    card.addEventListener('click', () => openGameModal(g));
     cardsEl.appendChild(card);
   }
 
@@ -273,10 +312,17 @@ function renderLibrary() {
   const listEl = $('libraryList');
   const countEl = $('libraryCount');
 
-  const games = [...state.myGames].sort((a, b) => {
-    if (!!a.isFavorite !== !!b.isFavorite) return a.isFavorite ? -1 : 1;
-    return String(a.name).localeCompare(String(b.name));
-  });
+  const games = [...state.myGames];
+  if (state.libSort === 'recent') {
+    games.sort((a, b) => (getPlaytimeEntry(b)?.lastPlayed || 0) - (getPlaytimeEntry(a)?.lastPlayed || 0));
+  } else if (state.libSort === 'played') {
+    games.sort((a, b) => (getPlaytimeEntry(b)?.seconds || 0) - (getPlaytimeEntry(a)?.seconds || 0));
+  } else {
+    games.sort((a, b) => {
+      if (!!a.isFavorite !== !!b.isFavorite) return a.isFavorite ? -1 : 1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+  }
 
   const visible = games.filter(g =>
     !term || String(g.name).toLowerCase().includes(term) || String(g.exe).toLowerCase().includes(term));
@@ -300,12 +346,17 @@ function renderLibrary() {
     const logo = iconUrl
       ? `<img class="row-img" src="${esc(iconUrl)}" alt="" onerror="this.remove()">`
       : `<div class="row-img row-img-ph">${esc((g.name || '?').charAt(0).toUpperCase())}</div>`;
+    const pt = getPlaytimeEntry(g);
+    const playLine = pt && (pt.seconds > 0 || pt.lastPlayed)
+      ? `<div class="row-play">${esc(fmtTime(pt.seconds))}${pt.lastPlayed ? '   ·   last ' + esc(timeAgo(pt.lastPlayed)) : ''}</div>`
+      : '';
     row.innerHTML = `
       <div class="row-top">
         ${logo}
         <div class="row-name">${esc(g.isFavorite ? '★  ' : '')}${esc(g.name)}</div>
       </div>
-      <div class="row-sub">${esc(g.exe)}   ·   App ID ${esc(g.appId || '—')}</div>
+      <div class="row-sub">${esc(g.exe)}   ·   ${esc(appIdLabel(g))}</div>
+      ${playLine}
     `;
     row.addEventListener('click', () => selectGame(g));
     row.addEventListener('dblclick', () => {
@@ -327,7 +378,11 @@ function selectGame(game) {
   $('detailTitle').textContent = game.name;
   $('detailBannerTitle').textContent = game.name;
   $('detailBannerSub').textContent = game.exe;
-  $('detailSub').textContent = `${game.exe}   ·   App ID ${game.appId || '—'}`;
+  $('detailSub').textContent = `${game.exe}   ·   ${appIdLabel(game)}`;
+  const pt = getPlaytimeEntry(game);
+  $('detailPlay').textContent = pt && pt.seconds > 0
+    ? `Played ${fmtTime(pt.seconds)}${pt.lastPlayed ? '   ·   last ' + timeAgo(pt.lastPlayed) : ''}`
+    : 'Not played yet';
 
   const artBox = $('artBox');
   const iconUrl = gameIcon(game);
@@ -340,18 +395,28 @@ function selectGame(game) {
   const nd = getNewDetectionFlag(game);
   const noteEl = $('detailBannerNote');
   if (nd) {
-    noteEl.textContent = 'New detection (no fixed executable).';
+    noteEl.textContent = 'New detection - shows on Discord via Rich Presence.';
   } else {
     noteEl.textContent = '';
   }
 
   const note = $('detailNote');
   if (nd) {
-    note.textContent = 'Note: this game uses new detection (no fixed executable). The status is set directly via rich presence.';
+    note.textContent = 'Note: this game has no fixed executable, so its status is set via Discord Rich Presence. Make sure Discord is running with Activity Status enabled (Settings > Activity Privacy).';
     note.style.display = 'block';
   } else {
     note.style.display = 'none';
   }
+
+  const themes = getThemesForGame(game);
+  const thEl = $('detailThemes');
+  thEl.innerHTML = '';
+  (themes || []).slice(0, 8).forEach(t => {
+    const s = document.createElement('span');
+    s.className = 'detail-theme-tag';
+    s.textContent = t;
+    thEl.appendChild(s);
+  });
 
   renderFavBtn();
   setLaunchUi();
@@ -363,6 +428,12 @@ function gameIcon(g) {
   if (!g) return '';
   const match = state.db.find(d => String(d.id) === String(g.appId || g.id) && String(d.exe) === String(g.exe));
   return match && match.icon ? String(match.icon) : '';
+}
+
+function getThemesForGame(game) {
+  if (game && Array.isArray(game.themes)) return game.themes;
+  const match = state.db.find(d => String(d.id) === String(game?.appId || game?.id) && String(d.exe) === String(game?.exe));
+  return (match && match.themes) || [];
 }
 
 function getNewDetectionFlag(game) {
@@ -674,6 +745,13 @@ document.querySelectorAll('.ham-item').forEach(item => {
       launcherApi.openExternal('https://discord.gg/GRYdRdGPsT');
       return;
     }
+    if (action === 'backup-export') { closeHamburgerMenu(); doBackupExport(); return; }
+    if (action === 'backup-import') { closeHamburgerMenu(); doBackupImport(); return; }
+    if (action === 'data-folder') { closeHamburgerMenu(); launcherApi.openDataFolder(); return; }
+    if (action === 'github') { closeHamburgerMenu(); launcherApi.openGitHub(); return; }
+    if (action === 'restart') { closeHamburgerMenu(); launcherApi.restart(); return; }
+    if (action === 'whatsnew') { closeHamburgerMenu(); openWhatsNewMenu(); return; }
+    if (action === 'shortcuts') { closeHamburgerMenu(); openShortcutsModal(); return; }
     closeHamburgerMenu();
     const labels = { support: 'Support', feedback: 'Share Feedback', bug: 'Report a Bug', settings: 'Settings' };
     const label = labels[action] || action;
@@ -741,6 +819,7 @@ async function openUpdateModal() {
 }
 
 async function runUpdateCheck() {
+  window._updateRetried = false;
   $('updateStatus').textContent = 'Checking for updates...';
   $('updateStatus').className = 'update-status';
   $('updateDownload').style.display = 'none';
@@ -753,6 +832,10 @@ async function runUpdateCheck() {
     $('updateStatus').textContent = 'Could not reach the update server.';
     $('updateStatus').className = 'update-status err';
     $('updateRefresh').style.display = 'inline-block';
+    if (!window._updateRetried) {
+      window._updateRetried = true;
+      setTimeout(() => runUpdateCheck(), 2500);
+    }
     return;
   }
   $('verVal').textContent = res.current;
@@ -777,7 +860,11 @@ async function runUpdateCheck() {
       $('updateProgress').style.display = 'block';
       $('updateProgressFill').style.width = '0%';
       $('updateProgressText').textContent = 'Downloading update...';
+      window._updateDownloaded = false;
+      window._lastDlProgress = Date.now();
+      armDownloadWatchdog();
       const r = await launcherApi.installUpdate();
+      clearTimeout(window._dlWatchdog);
       if (!r.ok) {
         $('updateStatus').textContent = 'Download failed: ' + (r.error || 'unknown error');
         $('updateStatus').className = 'update-status err';
@@ -800,6 +887,16 @@ async function runUpdateCheck() {
   $('updateRefresh').style.display = 'inline-block';
 }
 
+function armDownloadWatchdog() {
+  clearTimeout(window._dlWatchdog);
+  window._dlWatchdog = setTimeout(() => {
+    if (window._updateDownloaded) return;
+    $('updateStatus').textContent = 'Download seems stuck. Your connection may be slow - wait or hit Refresh. If it keeps failing, grab the installer from the GitHub release page.';
+    $('updateStatus').className = 'update-status err';
+    $('updateRefresh').style.display = 'inline-block';
+  }, 45000);
+}
+
 $('updateRefresh').addEventListener('click', runUpdateCheck);
 
 $('modalClose').addEventListener('click', () => {
@@ -815,9 +912,13 @@ launcherApi.onUpdateProgress((p) => {
   $('updateProgressFill').style.width = pct + '%';
   $('updateProgressText').textContent = `Downloading update... ${pct}%`;
   $('updateDownload').textContent = `Downloading ${pct}%`;
+  window._lastDlProgress = Date.now();
+  armDownloadWatchdog();
 });
 
 launcherApi.onUpdateDownloaded(() => {
+  window._updateDownloaded = true;
+  clearTimeout(window._dlWatchdog);
   $('updateProgressFill').style.width = '100%';
   $('updateProgressText').textContent = 'Download complete.';
   $('updateStatus').textContent = 'Ready to install. The app will close and restart automatically.';
@@ -828,10 +929,12 @@ launcherApi.onUpdateDownloaded(() => {
 });
 
 launcherApi.onUpdateError((err) => {
+  clearTimeout(window._dlWatchdog);
   $('updateStatus').textContent = 'Update failed: ' + (err.message || String(err));
   $('updateStatus').className = 'update-status err';
   $('updateDownload').disabled = false;
   $('updateDownload').textContent = 'Try Again';
+  $('updateRefresh').style.display = 'inline-block';
 });
 
 function showUpdateToast(version) {
@@ -876,6 +979,28 @@ function showWhatsNewModal(w) {
   });
 }
 
+function openShortcutsModal() {
+  $('shortcutsModal').style.display = 'flex';
+}
+
+function openWhatsNewMenu() {
+  showWhatsNewModal({
+    version: '0.3.0',
+    published: '',
+    notes: [
+      'Update checking now retries automatically and warns when a download gets stuck',
+      'Game detail popup with cover art, themes and Steam/Web links',
+      'Add your own games with a custom .exe',
+      'Library backup: export and import',
+      'Store sorting (A-Z / Newest / Random) and Surprise Me',
+      'Smarter search with more aliases and duplicate-free browsing',
+      'Playtime tracking and Recently Played sorting in your library',
+      'Keyboard shortcuts: Ctrl+F, Ctrl+Enter, Esc',
+      'Minimize to system tray'
+    ]
+  });
+}
+
 async function openAboutModal() {
   $('aboutModal').style.display = 'flex';
   try {
@@ -889,6 +1014,10 @@ async function openAboutModal() {
 
 $('aboutClose').addEventListener('click', () => {
   $('aboutModal').style.display = 'none';
+});
+
+$('shortcutsClose').addEventListener('click', () => {
+  $('shortcutsModal').style.display = 'none';
 });
 
 $('aboutModal').addEventListener('click', (e) => {
@@ -1060,13 +1189,41 @@ $('setBrowse').addEventListener('click', async () => {
   saveSetting({ gamePath: folder });
 });
 
+async function doBackupExport() {
+  const r = await launcherApi.exportBackup();
+  if (!r?.ok) {
+    if (!r?.canceled) showToast('Export failed: ' + (r?.error || 'unknown error'), 'danger');
+    return;
+  }
+  showToast(`Backup saved (${r.count} games): ${r.path}`, 'success');
+}
+
+$('backupExport').addEventListener('click', doBackupExport);
+
+async function doBackupImport() {
+  const r = await launcherApi.importBackup();
+  if (!r?.ok) {
+    if (!r?.canceled) showToast('Import failed: ' + (r?.error || 'unknown error'), 'danger');
+    return;
+  }
+  await refreshMyGames();
+  await loadAppSettings();
+  applyTheme(appSettings.theme);
+  $('setStartup').checked = !!appSettings.startup;
+  showToast(`Backup imported (${r.count} games).`, 'success');
+}
+
+$('backupImport').addEventListener('click', doBackupImport);
+
 $('featuredBtn').addEventListener('click', async () => {
   if (state._featured) await addToLibrary(state._featured);
 });
 
-$('storeSearch').addEventListener('input', async (e) => {
+let storeSearchTimer = null;
+$('storeSearch').addEventListener('input', (e) => {
   state.storeSearch = e.target.value;
-  renderStore();
+  clearTimeout(storeSearchTimer);
+  storeSearchTimer = setTimeout(renderStore, 250);
 });
 
 document.querySelectorAll('.chip').forEach(chip => {
@@ -1080,6 +1237,11 @@ document.querySelectorAll('.chip').forEach(chip => {
 
 $('librarySearch').addEventListener('input', (e) => {
   state.libSearch = e.target.value;
+  renderLibrary();
+});
+
+$('libSort').addEventListener('change', (e) => {
+  state.libSort = e.target.value;
   renderLibrary();
 });
 
@@ -1100,10 +1262,42 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeContextMenu(); closeHamburgerMenu(); }
+  if (e.key === 'Escape') {
+    closeContextMenu();
+    closeHamburgerMenu();
+    const openModals = ['gameModal', 'customModal', 'updateModal', 'settingsModal', 'aboutModal', 'aboutDevModal', 'termsModal', 'whatsNewModal', 'shortcutsModal', 'launchModal'];
+    for (const id of openModals) {
+      const el = $(id);
+      if (el && el.style.display === 'flex') el.style.display = 'none';
+    }
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    if (state.currentTab === 'library') {
+      $('librarySearch').focus();
+      $('librarySearch').select();
+    } else {
+      $('storeSearch').focus();
+      $('storeSearch').select();
+    }
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (state.selected && !state.running) toggleLaunch();
+  }
 });
 
 window.addEventListener('blur', () => { closeContextMenu(); closeHamburgerMenu(); });
+
+async function refreshPlaytimes() {
+  try {
+    state.playtimes = await launcherApi.getPlaytimes();
+  } catch {
+    state.playtimes = state.playtimes || {};
+  }
+  renderLibrary();
+}
 
 launcherApi.onGameExited(() => {
   if (!state.running) return;
@@ -1111,6 +1305,7 @@ launcherApi.onGameExited(() => {
   state.runningGame = null;
   setLaunchUi();
   showToast('Process exited.', 'danger');
+  refreshPlaytimes();
 });
 
 function initAutoScrollbar() {
@@ -1210,7 +1405,8 @@ async function loadStoreBatch() {
   storeLoading = true;
   try {
     const cat = state.storeCat || 'All';
-    const page = await launcherApi.getDatabaseGames('', storeOffset, STORE_BATCH, cat);
+    const q = String(state.storeSearch || '').trim();
+    const page = await launcherApi.getDatabaseGames(q, storeOffset, STORE_BATCH, cat, state.storeSort || 'az');
     const items = Array.isArray(page?.items) ? page.items : [];
     storeOffset += items.length;
     if (items.length < STORE_BATCH || storeOffset >= STORE_CAP) storeDone = true;
@@ -1253,12 +1449,14 @@ async function loadStoreBatch() {
 function renderStoreAllGames() {
   storeOffset = 0;
   storeDone = false;
+  storeLoading = false;
   const grid = $('storeGrid');
   if (grid) grid.innerHTML = '';
   const msg = $('storeMore');
   if (msg) { msg.style.display = 'block'; msg.textContent = 'Loading games...'; }
   renderStoreChips();
   setupStoreCats();
+  setupStoreSort();
   loadStoreBatch();
 }
 
@@ -1282,14 +1480,162 @@ function setupStoreGridActions() {
   if (!grid || grid.dataset.wired) return;
   grid.dataset.wired = '1';
   grid.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.game-add');
-    if (!btn) return;
-    const card = btn.closest('.game-card');
+    const card = e.target.closest('.game-card');
     if (!card) return;
     const g = state.db.find((x) => String(x.id) === String(card.dataset.id) && String(x.exe) === String(card.dataset.exe));
-    if (g) await addToLibrary(g);
+    if (!g) return;
+    if (e.target.closest('.game-add')) {
+      await addToLibrary(g);
+    } else {
+      openGameModal(g);
+    }
   });
 }
+
+function openGameModal(g) {
+  if (!g) return;
+  $('gmName').textContent = g.name;
+  $('gmExe').textContent = g.exe;
+  $('gmAppId').textContent = g.id ? 'App ID ' + g.id : '';
+  const ph = $('gmArtPh');
+  const img = $('gmArtImg');
+  const iconUrl = gameIcon(g);
+  if (iconUrl) {
+    ph.style.display = 'none';
+    img.style.display = 'none';
+    img.onload = () => { img.style.display = 'block'; ph.style.display = 'none'; };
+    img.onerror = () => { img.style.display = 'none'; ph.style.display = 'flex'; };
+    img.src = iconUrl;
+  } else {
+    img.style.display = 'none';
+    ph.style.display = 'flex';
+    ph.textContent = (g.name || '?').charAt(0).toUpperCase();
+  }
+  const themes = $('gmThemes');
+  themes.innerHTML = '';
+  (g.themes || []).slice(0, 8).forEach(t => {
+    const s = document.createElement('span');
+    s.className = 'gm-theme-tag';
+    s.textContent = t;
+    themes.appendChild(s);
+  });
+  const nd = getNewDetectionFlag(g);
+  const note = $('gmNote');
+  if (nd) {
+    note.textContent = 'New detection (no fixed executable) - shows on Discord via Rich Presence.';
+    note.style.display = 'block';
+  } else {
+    note.style.display = 'none';
+  }
+  const addBtn = $('gmAdd');
+  if (isInLibrary(g)) {
+    addBtn.textContent = 'In Library \u2713';
+    addBtn.disabled = true;
+  } else {
+    addBtn.textContent = 'Add to Library';
+    addBtn.disabled = false;
+    addBtn.onclick = async () => {
+      await addToLibrary(g, false);
+      addBtn.textContent = 'In Library \u2713';
+      addBtn.disabled = true;
+      showToast(g.name + ' added to library.', 'success');
+    };
+  }
+  $('gmSteam').onclick = () => launcherApi.openExternal('https://store.steampowered.com/search/?term=' + encodeURIComponent(g.name));
+  $('gmGoogle').onclick = () => launcherApi.openExternal('https://www.google.com/search?q=' + encodeURIComponent(g.name));
+  $('gameModal').style.display = 'flex';
+}
+
+$('gmClose').addEventListener('click', () => {
+  $('gameModal').style.display = 'none';
+});
+
+$('gameModal').addEventListener('click', (e) => {
+  if (e.target === $('gameModal')) $('gameModal').style.display = 'none';
+});
+
+function openCustomModal() {
+  $('cgName').value = '';
+  $('cgPath').value = '';
+  $('customModal').style.display = 'flex';
+  $('cgName').focus();
+}
+
+$('addCustomBtn').addEventListener('click', openCustomModal);
+
+$('cgBrowse').addEventListener('click', async () => {
+  const p = await launcherApi.selectFile();
+  if (p) $('cgPath').value = p;
+});
+
+$('cgCancel').addEventListener('click', () => {
+  $('customModal').style.display = 'none';
+});
+
+$('customModal').addEventListener('click', (e) => {
+  if (e.target === $('customModal')) $('customModal').style.display = 'none';
+});
+
+$('cgAdd').addEventListener('click', async () => {
+  const name = $('cgName').value.trim();
+  const exe = $('cgPath').value.trim();
+  if (!name || !exe) {
+    showToast('Enter a name and pick an .exe.', 'danger');
+    return;
+  }
+  $('cgAdd').disabled = true;
+  let r;
+  try {
+    r = await launcherApi.addCustomGame(name, exe);
+  } catch (err) {
+    r = { ok: false, error: String(err?.message || err) };
+  }
+  $('cgAdd').disabled = false;
+  if (!r?.ok) {
+    showToast('Custom game failed: ' + (r.error || 'unknown error'), 'danger');
+    return;
+  }
+  $('customModal').style.display = 'none';
+  await refreshMyGames();
+  const added = state.myGames.find(g => g && g.custom && String(g.exe).toLowerCase() === exe.toLowerCase());
+  if (added) selectGame(added);
+  switchTab('library');
+  showToast((r.existed ? 'Already in library: ' : 'Added: ') + (r.entry?.name || name), 'success');
+});
+
+function setupStoreSort() {
+  const sel = $('storeSort');
+  if (!sel || sel.dataset.wired) return;
+  sel.dataset.wired = '1';
+  sel.addEventListener('change', () => {
+    state.storeSort = sel.value;
+    storeOffset = 0;
+    storeDone = false;
+    const grid = $('storeGrid');
+    if (grid) grid.innerHTML = '';
+    const msg = $('storeMore');
+    if (msg) { msg.style.display = 'block'; msg.textContent = 'Loading games...'; }
+    loadStoreBatch();
+  });
+}
+
+async function surpriseMe() {
+  let batch;
+  try {
+    batch = await launcherApi.getDatabaseGames('', 0, 300, 'All', 'random');
+  } catch {
+    showToast('Could not load games.', 'danger');
+    return;
+  }
+  const items = (Array.isArray(batch && batch.items) ? batch.items : []).filter(g => !isInLibrary(g));
+  if (!items.length) {
+    showToast('Every game is already in your library!', 'accent');
+    return;
+  }
+  openGameModal(items[Math.floor(Math.random() * items.length)]);
+}
+
+$('surpriseBtn').addEventListener('click', surpriseMe);
 
 (async function init() {
   await loadAppSettings();
@@ -1307,6 +1653,11 @@ function setupStoreGridActions() {
   }
   await ensureDatabaseSynced();
   await refreshMyGames();
+  try {
+    state.playtimes = await launcherApi.getPlaytimes();
+  } catch {
+    state.playtimes = {};
+  }
   loadDatabaseUntil(() => state.db.length >= 50).then(() => {
     renderStore();
     renderLibrary();

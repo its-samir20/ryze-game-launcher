@@ -1,7 +1,7 @@
 {
   "name": "ryze-game-launcher",
   "productName": "RYZE Game Launcher",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "RYZE Game Launcher - a game launcher for quest tracking with a fake game window for rich presence.",
   "main": "src/main.js",
   "type": "commonjs",
@@ -42,7 +42,7 @@
       "runAfterFinish": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "deleteAppDataOnUninstall": false,
+      "deleteAppDataOnUninstall": true,
       "include": "build/installer.nsh",
       "artifactName": "RYZE-Game-Launcher-Setup-${version}.exe"
     },
